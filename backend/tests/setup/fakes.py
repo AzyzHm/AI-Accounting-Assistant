@@ -182,3 +182,20 @@ class FakeChatGraph:
         if self.token_usage is not None:
             result["token_usage"] = self.token_usage
         return result
+
+    def stream(self, state, stream_mode="updates"):
+        """Mimics `app.stream(state, stream_mode="updates")`, yielding one
+        {node_name: partial_state} dict per node, ending with the "generate"
+        node's answer/category/token_usage. Raises `.raise_exc` (if set) on
+        the first step, same as a real graph error partway through a run.
+        """
+        self.last_invoke_state = state
+        if self.raise_exc:
+            raise self.raise_exc
+        yield {"router": {"intent": "retrieve", "category": self.category}}
+        result = {"answer": self.answer}
+        if self.category is not None:
+            result["category"] = self.category
+        if self.token_usage is not None:
+            result["token_usage"] = self.token_usage
+        yield {"generate": result}
