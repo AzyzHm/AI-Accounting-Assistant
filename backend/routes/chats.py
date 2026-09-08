@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.chats import (
@@ -12,9 +15,12 @@ from core.chats import (
     rename_chat,
     touch_chat,
 )
+from core.logger import get_logger
 from core.security import get_current_user
 from core.stats import record_usage
-from graph.workflow import app
+from graph.workflow import NODE_LABELS, app
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
@@ -32,6 +38,51 @@ def _owned_chat_or_404(chat_id: str, uid: str) -> dict:
     if chat is None or chat["owner_uid"] != uid:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat
+
+
+def _sse_event(payload: dict) -> str:
+    """Formats a dict as a single Server-Sent Event line."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
+    """
+    Runs the RAG graph for one message, yielding an SSE "progress" event
+    every time a node finishes (refining the query, searching the web,
+    searching sources, writing the answer...), so the frontend can show the
+    agent's progress in real time. Ends with a "done" event carrying the
+    final answer, or an "error" event if the agent failed.
+
+    Also persists the assistant's reply and rolls its token cost into the
+    caller's usage total, exactly like a synchronous call would.
+    """
+    result: dict = {}
+    try:
+        for update in app.stream({"query": query, "history": history}, stream_mode="updates"):  # type: ignore
+            for node_name, node_update in update.items():
+                result.update(node_update)
+                label = NODE_LABELS.get(node_name, node_name)
+                logger.info("Chat %s progress: %s (%s)", chat_id, node_name, label)
+                yield _sse_event({"event": "progress", "node": node_name, "label": label})
+    except Exception as e:
+        logger.error("Chat %s graph error: %s", chat_id, e)
+        yield _sse_event({"event": "error", "detail": str(e)})
+        return
+
+    answer = result.get("answer") or ""
+    category = result.get("category")
+    token_usage = result.get("token_usage")
+
+    add_message(
+        chat_id, role="assistant", content=answer, category=category, token_usage=token_usage
+    )
+    touch_chat(chat_id)
+    if token_usage:
+        record_usage(uid, token_usage)
+
+    yield _sse_event(
+        {"event": "done", "response": answer, "category": category, "chat_id": chat_id}
+    )
 
 
 @router.post("/")
@@ -75,13 +126,17 @@ async def delete_my_chat(chat_id: str, current_user: dict = Depends(get_current_
 async def send_message(
     chat_id: str, body: MessageRequest, current_user: dict = Depends(get_current_user)
 ):
-    """Sends a message in an existing chat.
+    """Sends a message in an existing chat and streams the agent's progress.
 
     Runs the agent with the chat's last MAX_HISTORY_MESSAGES messages as
-    conversational context, stores both the user's message and the
-    assistant's reply, and rolls the reply's token cost into the caller's
-    usage total. The chat's title is left untouched, it stays "Untitled
-    chat" (or whatever the owner renamed it to) until they rename it.
+    conversational context. The response is a Server-Sent Events stream:
+    one "progress" event per graph node the agent moves through (refining
+    the query, searching the web, searching sources, writing the answer...),
+    then a final "done" event with the answer, or an "error" event if the
+    agent failed. Stores both the user's message and the assistant's reply,
+    and rolls the reply's token cost into the caller's usage total. The
+    chat's title is left untouched, it stays "Untitled chat" (or whatever
+    the owner renamed it to) until they rename it.
     """
     _owned_chat_or_404(chat_id, current_user["uid"])
 
@@ -92,22 +147,7 @@ async def send_message(
 
     add_message(chat_id, role="user", content=body.query)
 
-    try:
-        result = app.invoke({"query": body.query, "history": history})  # type: ignore
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-    answer = result["answer"]
-    category = result.get("category")
-    token_usage = result.get("token_usage")
-
-    add_message(
-        chat_id, role="assistant", content=answer, category=category, token_usage=token_usage
+    return StreamingResponse(
+        _stream_chat_reply(chat_id, body.query, history, current_user["uid"]),
+        media_type="text/event-stream",
     )
-
-    touch_chat(chat_id)
-
-    if token_usage:
-        record_usage(current_user["uid"], token_usage)
-
-    return {"response": answer, "category": category, "chat_id": chat_id}
