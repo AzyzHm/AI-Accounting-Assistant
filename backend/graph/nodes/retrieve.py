@@ -1,7 +1,10 @@
 import ollama
 
+from core.logger import get_logger
 from graph.state import GraphState
 from services.chroma_service import collection
+
+logger = get_logger(__name__)
 
 
 def retrieve_context(query: str, category: str, n_results: int = 5):
@@ -24,5 +27,11 @@ def retrieve_context(query: str, category: str, n_results: int = 5):
 
 
 def retrieval_node(state: GraphState):
-    context = retrieve_context(state["query"], state["category"], 5)
-    return {"context": context}
+    attempts = state.get("retrieval_attempts", 0) + 1
+    search_query = state.get("search_query") or state["query"]
+
+    logger.info(
+        "Retrieving (attempt %d) query=%r category=%s", attempts, search_query, state["category"]
+    )
+    context = retrieve_context(search_query, state["category"], 5)
+    return {"context": context, "retrieval_attempts": attempts}

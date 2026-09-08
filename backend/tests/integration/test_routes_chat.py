@@ -1,3 +1,6 @@
+import json
+
+
 class TestCreateChat:
     def test_creates_an_empty_chat_owned_by_the_caller(self, app):
         client, _fake_graph, _fake_db = app
@@ -129,8 +132,18 @@ class TestDeleteChat:
         assert response.status_code == 404
 
 
+def _parse_sse_events(response_text: str) -> list[dict]:
+    """Parses a `text/event-stream` body into a list of the JSON payloads
+    carried by each `data: ...` line."""
+    events = []
+    for line in response_text.splitlines():
+        if line.startswith("data: "):
+            events.append(json.loads(line[len("data: ") :]))
+    return events
+
+
 class TestSendMessage:
-    def test_returns_answer_and_category_on_success(self, app):
+    def test_streams_progress_events_then_a_done_event(self, app):
         client, fake_graph, fake_db = app
         fake_db.collection("chats").document("c1").set(
             {"owner_uid": "test-uid", "title": "Untitled chat", "updated_at": 1}
@@ -141,7 +154,16 @@ class TestSendMessage:
         response = client.post("/chats/c1/messages", json={"query": "What is IFRS 16?"})
 
         assert response.status_code == 200
-        assert response.json() == {
+        assert response.headers["content-type"].startswith("text/event-stream")
+
+        events = _parse_sse_events(response.text)
+        assert events[0] == {
+            "event": "progress",
+            "node": "router",
+            "label": "Understanding your question",
+        }
+        assert events[-1] == {
+            "event": "done",
             "response": "IFRS 16 requires lessees to recognize a right-of-use asset.",
             "category": "ifrs",
             "chat_id": "c1",
@@ -230,7 +252,7 @@ class TestSendMessage:
 
         assert response.status_code == 404
 
-    def test_returns_500_with_error_detail_when_graph_raises(self, app):
+    def test_emits_an_error_event_when_graph_raises(self, app):
         client, fake_graph, fake_db = app
         fake_db.collection("chats").document("c1").set(
             {"owner_uid": "test-uid", "title": "Untitled chat", "updated_at": 1}
@@ -239,8 +261,22 @@ class TestSendMessage:
 
         response = client.post("/chats/c1/messages", json={"query": "q"})
 
-        assert response.status_code == 500
-        assert response.json() == {"detail": "LLM unavailable"}
+        assert response.status_code == 200
+        events = _parse_sse_events(response.text)
+        assert events == [{"event": "error", "detail": "LLM unavailable"}]
+
+    def test_does_not_persist_an_assistant_message_when_graph_raises(self, app):
+        client, fake_graph, fake_db = app
+        fake_db.collection("chats").document("c1").set(
+            {"owner_uid": "test-uid", "title": "Untitled chat", "updated_at": 1}
+        )
+        fake_graph.raise_exc = RuntimeError("LLM unavailable")
+
+        client.post("/chats/c1/messages", json={"query": "q"})
+
+        messages = fake_db.collection("chats").document("c1").collection("messages").stream()
+        roles = [m.to_dict()["role"] for m in messages]
+        assert roles == ["user"]
 
     def test_returns_422_when_query_field_missing(self, app):
         client, _fake_graph, fake_db = app

@@ -5,7 +5,7 @@ import { BehaviorSubject, of, throwError } from 'rxjs';
 
 import { ChatComponent } from '@features/chat/chat.component';
 import { ChatApiService } from '@core/services/chat-api.service';
-import { ChatSummary } from '@core/models/chat.model';
+import { ChatStreamEvent, ChatSummary } from '@core/models/chat.model';
 
 function activatedRouteStub(initialChatId: string | null = null) {
   const paramMap = new BehaviorSubject(
@@ -24,6 +24,15 @@ function makeChatApi(overrides: Partial<Record<keyof ChatApiService, jest.Mock>>
     sendMessage: jest.fn(),
     ...overrides
   };
+}
+
+function answeredWith(response: string, chatId: string) {
+  const events: ChatStreamEvent[] = [
+    { event: 'progress', node: 'router', label: 'Understanding your question' },
+    { event: 'progress', node: 'generate', label: 'Writing answer' },
+    { event: 'done', response, category: 'ifrs', chat_id: chatId }
+  ];
+  return of(...events);
 }
 
 describe('ChatComponent', () => {
@@ -72,7 +81,7 @@ describe('ChatComponent', () => {
           title: 'IFRS 16',
           messages: [
             { id: 'm1', role: 'user', content: 'What is IFRS 16?' },
-            { id: 'm2', role: 'assistant', content: 'It is the leases standard.', category: 'ifrs' }
+            { id: 'm2', role: 'assistant', content: 'It is the leases standard.' }
           ]
         })
       )
@@ -98,9 +107,7 @@ describe('ChatComponent', () => {
       createChat: jest
         .fn()
         .mockReturnValue(of({ id: 'new-1', owner_uid: 'u1', title: 'New chat' })),
-      sendMessage: jest
-        .fn()
-        .mockReturnValue(of({ response: 'Here you go.', category: 'ifrs', chat_id: 'new-1' }))
+      sendMessage: jest.fn().mockReturnValue(answeredWith('Here you go.', 'new-1'))
     });
 
     await render(ChatComponent, {
@@ -128,9 +135,7 @@ describe('ChatComponent', () => {
       getChat: jest
         .fn()
         .mockReturnValue(of({ id: 'c1', owner_uid: 'u1', title: 'Ongoing', messages: [] })),
-      sendMessage: jest
-        .fn()
-        .mockReturnValue(of({ response: 'Sure.', category: 'ifrs', chat_id: 'c1' }))
+      sendMessage: jest.fn().mockReturnValue(answeredWith('Sure.', 'c1'))
     });
 
     await render(ChatComponent, {
@@ -152,7 +157,66 @@ describe('ChatComponent', () => {
     expect(chatApi.sendMessage).toHaveBeenCalledWith('c1', 'Follow-up question');
   });
 
-  it('shows an error message when sending fails', async () => {
+  it('shows the live progress label while the agent is working', async () => {
+    const { route } = activatedRouteStub('c1');
+    const events: ChatStreamEvent[] = [
+      { event: 'progress', node: 'refine', label: 'Refining your query' },
+      { event: 'progress', node: 'retrieve', label: 'Searching sources' },
+      { event: 'done', response: 'Sure.', category: 'ifrs', chat_id: 'c1' }
+    ];
+    const chatApi = makeChatApi({
+      getChat: jest
+        .fn()
+        .mockReturnValue(of({ id: 'c1', owner_uid: 'u1', title: 'Ongoing', messages: [] })),
+      sendMessage: jest.fn().mockReturnValue(of(...events))
+    });
+
+    await render(ChatComponent, {
+      providers: [
+        { provide: ChatApiService, useValue: chatApi },
+        { provide: ActivatedRoute, useValue: route },
+        { provide: Router, useValue: { navigate: jest.fn() } }
+      ]
+    });
+
+    await waitFor(() => expect(chatApi.getChat).toHaveBeenCalled());
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Ask a question'), 'q');
+    await user.click(screen.getByRole('button', { name: /^ask$/i }));
+
+    expect(await screen.findByText('Sure.')).toBeTruthy();
+  });
+
+  it('shows an error message when the stream reports an error event', async () => {
+    const { route } = activatedRouteStub('c1');
+    const chatApi = makeChatApi({
+      getChat: jest
+        .fn()
+        .mockReturnValue(of({ id: 'c1', owner_uid: 'u1', title: 'x', messages: [] })),
+      sendMessage: jest
+        .fn()
+        .mockReturnValue(of<ChatStreamEvent>({ event: 'error', detail: 'LLM unavailable' }))
+    });
+
+    await render(ChatComponent, {
+      providers: [
+        { provide: ChatApiService, useValue: chatApi },
+        { provide: ActivatedRoute, useValue: route },
+        { provide: Router, useValue: { navigate: jest.fn() } }
+      ]
+    });
+
+    await waitFor(() => expect(chatApi.getChat).toHaveBeenCalled());
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Ask a question'), 'q');
+    await user.click(screen.getByRole('button', { name: /^ask$/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i);
+  });
+
+  it('shows an error message when the request itself fails', async () => {
     const { route } = activatedRouteStub('c1');
     const chatApi = makeChatApi({
       getChat: jest

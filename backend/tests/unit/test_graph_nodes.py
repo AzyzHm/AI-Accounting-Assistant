@@ -1,6 +1,7 @@
 import json
 
 import graph.nodes.generate as generate_mod
+import graph.nodes.refine as refine_mod
 import graph.nodes.retrieve as retrieve_mod
 import graph.nodes.router as router_mod
 import graph.nodes.validate as validate_mod
@@ -11,10 +12,13 @@ from config.prompts import expert_prompt_v1, expert_prompt_v2
 def _base_state(**overrides):
     state = {
         "query": "What is IFRS 16?",
+        "search_query": "What is IFRS 16?",
+        "intent": "retrieve",
         "category": "ifrs",
         "context": "",
         "answer": "",
         "is_valid": False,
+        "retrieval_attempts": 0,
     }
     state.update(overrides)
     return state
@@ -37,43 +41,133 @@ _ZERO_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 
 class TestRouterNode:
-    def test_route_query_returns_category_from_llm(self, monkeypatch):
+    def test_route_query_returns_intent_and_category_from_llm(self, monkeypatch):
         monkeypatch.setattr(
             router_mod,
             "getResponseFromLLM",
-            lambda *a, **kw: FakeResponse(json.dumps({"category": "ifrs"})),
+            lambda *a, **kw: FakeResponse(json.dumps({"intent": "retrieve", "category": "ifrs"})),
         )
-        assert router_mod.route_query("What is IFRS 16?") == "ifrs"
+        assert router_mod.route_query("What is IFRS 16?") == ("retrieve", "ifrs")
+
+    def test_route_query_ignores_category_when_intent_is_not_retrieve(self, monkeypatch):
+        monkeypatch.setattr(
+            router_mod,
+            "getResponseFromLLM",
+            lambda *a, **kw: FakeResponse(json.dumps({"intent": "web_search", "category": "ifrs"})),
+        )
+        assert router_mod.route_query("What's the EUR/TND rate today?") == ("web_search", None)
 
     def test_route_query_falls_back_on_empty_response(self, monkeypatch):
         monkeypatch.setattr(router_mod, "getResponseFromLLM", lambda *a, **kw: FakeResponse(None))
-        assert router_mod.route_query("hello") == "general_knowledge"
+        assert router_mod.route_query("hello") == ("general_knowledge", None)
 
     def test_route_query_falls_back_on_malformed_json(self, monkeypatch):
         monkeypatch.setattr(
             router_mod, "getResponseFromLLM", lambda *a, **kw: FakeResponse("not json")
         )
-        assert router_mod.route_query("hello") == "general_knowledge"
+        assert router_mod.route_query("hello") == ("general_knowledge", None)
 
-    def test_route_query_falls_back_on_missing_category_key(self, monkeypatch):
+    def test_route_query_falls_back_on_missing_intent_key(self, monkeypatch):
         monkeypatch.setattr(
             router_mod,
             "getResponseFromLLM",
             lambda *a, **kw: FakeResponse(json.dumps({"unexpected": "value"})),
         )
-        assert router_mod.route_query("hello") == "general_knowledge"
+        assert router_mod.route_query("hello") == ("general_knowledge", None)
+
+    def test_route_query_falls_back_on_unrecognized_intent(self, monkeypatch):
+        monkeypatch.setattr(
+            router_mod,
+            "getResponseFromLLM",
+            lambda *a, **kw: FakeResponse(json.dumps({"intent": "do_a_barrel_roll"})),
+        )
+        assert router_mod.route_query("hello") == ("general_knowledge", None)
 
     def test_route_query_falls_back_on_llm_exception(self, monkeypatch):
         def _raise(*a, **kw):
             raise RuntimeError("LLM unavailable")
 
         monkeypatch.setattr(router_mod, "getResponseFromLLM", _raise)
-        assert router_mod.route_query("hello") == "general_knowledge"
+        assert router_mod.route_query("hello") == ("general_knowledge", None)
 
-    def test_router_node_wraps_category_in_state_dict(self, monkeypatch):
-        monkeypatch.setattr(router_mod, "route_query", lambda query: "tax_code")
+    def test_route_query_includes_history_in_the_prompt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            router_mod,
+            "getResponseFromLLM",
+            lambda system_prompt, user_prompt, temp: (
+                captured.update(user_prompt=user_prompt)
+                or FakeResponse(json.dumps({"intent": "general_knowledge", "category": None}))
+            ),
+        )
+        router_mod.route_query(
+            "And what about last year?",
+            history=[{"role": "user", "content": "What is the VAT rate?"}],
+        )
+        assert "What is the VAT rate?" in captured["user_prompt"]
+
+    def test_router_node_wraps_intent_and_category_in_state_dict(self, monkeypatch):
+        monkeypatch.setattr(
+            router_mod, "route_query", lambda query, history=None: ("retrieve", "tax_code")
+        )
         result = router_mod.router_node(_base_state(query="Comment est calcule l'IS en Tunisie ?"))
-        assert result == {"category": "tax_code"}
+        assert result == {"intent": "retrieve", "category": "tax_code"}
+
+
+class TestRefineNode:
+    def test_refine_query_returns_refined_text(self, monkeypatch):
+        monkeypatch.setattr(
+            refine_mod,
+            "getResponseFromLLM",
+            lambda *a, **kw: FakeResponse(json.dumps({"refined_query": "Who issues IFRS 16?"})),
+        )
+        assert refine_mod.refine_query("who was it?") == "Who issues IFRS 16?"
+
+    def test_refine_query_falls_back_to_original_on_empty_response(self, monkeypatch):
+        monkeypatch.setattr(refine_mod, "getResponseFromLLM", lambda *a, **kw: FakeResponse(None))
+        assert refine_mod.refine_query("what is IFRS 16?") == "what is IFRS 16?"
+
+    def test_refine_query_falls_back_to_original_on_malformed_json(self, monkeypatch):
+        monkeypatch.setattr(
+            refine_mod, "getResponseFromLLM", lambda *a, **kw: FakeResponse("not json")
+        )
+        assert refine_mod.refine_query("what is IFRS 16?") == "what is IFRS 16?"
+
+    def test_refine_query_falls_back_to_original_on_missing_key(self, monkeypatch):
+        monkeypatch.setattr(
+            refine_mod,
+            "getResponseFromLLM",
+            lambda *a, **kw: FakeResponse(json.dumps({"unexpected": "value"})),
+        )
+        assert refine_mod.refine_query("what is IFRS 16?") == "what is IFRS 16?"
+
+    def test_refine_query_falls_back_to_original_on_llm_exception(self, monkeypatch):
+        def _raise(*a, **kw):
+            raise RuntimeError("LLM unavailable")
+
+        monkeypatch.setattr(refine_mod, "getResponseFromLLM", _raise)
+        assert refine_mod.refine_query("what is IFRS 16?") == "what is IFRS 16?"
+
+    def test_refine_query_includes_history_in_the_prompt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            refine_mod,
+            "getResponseFromLLM",
+            lambda system_prompt, user_prompt, temp: (
+                captured.update(user_prompt=user_prompt)
+                or FakeResponse(json.dumps({"refined_query": "resolved"}))
+            ),
+        )
+        refine_mod.refine_query(
+            "who was it?",
+            history=[{"role": "assistant", "content": "IFRS 16 is issued by the IASB."}],
+        )
+        assert "IFRS 16 is issued by the IASB." in captured["user_prompt"]
+
+    def test_refine_node_wraps_search_query_in_state_dict(self, monkeypatch):
+        monkeypatch.setattr(refine_mod, "refine_query", lambda query, history=None: "clean query")
+        result = refine_mod.refine_node(_base_state(query="what is that?"))
+        assert result == {"search_query": "clean query"}
 
 
 class TestValidateNode:
@@ -84,7 +178,7 @@ class TestValidateNode:
             called["yes"] = True
 
         monkeypatch.setattr(validate_mod, "getResponseFromLLM", _fail_if_called)
-        result = validate_mod.validate_node(_base_state(category="general_knowledge"))
+        result = validate_mod.validate_node(_base_state(intent="general_knowledge"))
         assert result == {"is_valid": True}
         assert "yes" not in called
 
@@ -92,16 +186,30 @@ class TestValidateNode:
         monkeypatch.setattr(
             validate_mod,
             "getResponseFromLLM",
-            lambda *a, **kw: FakeResponse(json.dumps({"is_valid": True})),
+            lambda *a, **kw: FakeResponse(json.dumps({"is_valid": True, "optimized_query": None})),
         )
         state = _base_state(context="IFRS 16 covers lease accounting.")
         assert validate_mod.validate_node(state) == {"is_valid": True}
 
-    def test_returns_false_for_invalid_context(self, monkeypatch):
+    def test_returns_false_and_optimized_query_for_invalid_context(self, monkeypatch):
         monkeypatch.setattr(
             validate_mod,
             "getResponseFromLLM",
-            lambda *a, **kw: FakeResponse(json.dumps({"is_valid": False})),
+            lambda *a, **kw: FakeResponse(
+                json.dumps({"is_valid": False, "optimized_query": "IFRS 16 lease term definition"})
+            ),
+        )
+        state = _base_state(context="unrelated text")
+        assert validate_mod.validate_node(state) == {
+            "is_valid": False,
+            "search_query": "IFRS 16 lease term definition",
+        }
+
+    def test_returns_false_without_search_query_when_no_optimized_query_given(self, monkeypatch):
+        monkeypatch.setattr(
+            validate_mod,
+            "getResponseFromLLM",
+            lambda *a, **kw: FakeResponse(json.dumps({"is_valid": False, "optimized_query": None})),
         )
         state = _base_state(context="unrelated text")
         assert validate_mod.validate_node(state) == {"is_valid": False}
@@ -133,7 +241,7 @@ class TestGenerateNode:
             return FakeResponse("A concise answer.")
 
         monkeypatch.setattr(generate_mod, "getResponseFromLLM", _fake)
-        state = _base_state(query="What is an asset?", context="", category="general_knowledge")
+        state = _base_state(query="What is an asset?", context="", intent="general_knowledge")
 
         assert generate_mod.generate_answer_node(state) == {
             "answer": "A concise answer.",
@@ -142,7 +250,7 @@ class TestGenerateNode:
         assert captured["system_prompt"] == expert_prompt_v1
         assert captured["user_prompt"] == "QUESTION: What is an asset?"
 
-    def test_uses_v1_prompt_when_context_missing_even_for_ifrs(self, monkeypatch):
+    def test_uses_v1_prompt_when_context_missing_even_for_retrieve_intent(self, monkeypatch):
         captured = {}
         monkeypatch.setattr(
             generate_mod,
@@ -187,7 +295,7 @@ class TestGenerateNode:
         assert captured["model_temp"] == 0.5
         assert captured["format"] == "text"
 
-    def test_defaults_category_to_general_knowledge_when_absent(self, monkeypatch):
+    def test_defaults_intent_to_general_knowledge_when_absent(self, monkeypatch):
         captured = {}
         monkeypatch.setattr(
             generate_mod,
@@ -208,7 +316,7 @@ class TestGenerateNode:
         state = _base_state(
             query="And what about the VAT rate?",
             context="",
-            category="general_knowledge",
+            intent="general_knowledge",
             history=[
                 {"role": "user", "content": "What is the corporate tax rate?"},
                 {"role": "assistant", "content": "It is 15% for most companies."},
@@ -274,17 +382,33 @@ class TestWebSearchNode:
             "search_web",
             lambda query: "Source: example.com\nContent: EUR/TND rate today.",
         )
-        result = web_search_mod.web_search_node(_base_state(query="current EUR/TND exchange rate"))
+        result = web_search_mod.web_search_node(
+            _base_state(query="current EUR/TND exchange rate", search_query="EUR/TND rate today")
+        )
         assert result == {"context": "Source: example.com\nContent: EUR/TND rate today."}
 
-    def test_passes_query_through_unchanged(self, monkeypatch):
+    def test_passes_search_query_through_unchanged(self, monkeypatch):
         captured = {}
         monkeypatch.setattr(
             web_search_mod,
             "search_web",
             lambda query: captured.setdefault("query", query) and "",
         )
-        web_search_mod.web_search_node(_base_state(query="some question"))
+        web_search_mod.web_search_node(
+            _base_state(query="some question", search_query="refined question")
+        )
+        assert captured["query"] == "refined question"
+
+    def test_falls_back_to_raw_query_when_search_query_missing(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            web_search_mod,
+            "search_web",
+            lambda query: captured.setdefault("query", query) and "",
+        )
+        state = _base_state(query="some question")
+        state.pop("search_query")
+        web_search_mod.web_search_node(state)
         assert captured["query"] == "some question"
 
     def test_ignores_other_state_fields(self, monkeypatch):
@@ -370,19 +494,40 @@ class TestRetrieveNode:
         monkeypatch.setattr(retrieve_mod, "collection", _Collection())
         assert retrieve_mod.retrieve_context("query", "ifrs") == "No local documents found."
 
-    def test_retrieval_node_wraps_context_in_state_dict(self, monkeypatch):
+    def test_retrieval_node_wraps_context_and_increments_attempts(self, monkeypatch):
         monkeypatch.setattr(
             retrieve_mod, "retrieve_context", lambda q, c, n: "Some retrieved context."
         )
-        result = retrieve_mod.retrieval_node(_base_state(query="q", category="ifrs"))
-        assert result == {"context": "Some retrieved context."}
+        result = retrieve_mod.retrieval_node(_base_state(search_query="q", category="ifrs"))
+        assert result == {"context": "Some retrieved context.", "retrieval_attempts": 1}
 
-    def test_retrieval_node_passes_query_category_and_default_n_results(self, monkeypatch):
+    def test_retrieval_node_increments_from_existing_attempts(self, monkeypatch):
+        monkeypatch.setattr(retrieve_mod, "retrieve_context", lambda q, c, n: "context")
+        result = retrieve_mod.retrieval_node(
+            _base_state(search_query="q", category="ifrs", retrieval_attempts=2)
+        )
+        assert result["retrieval_attempts"] == 3
+
+    def test_retrieval_node_passes_search_query_category_and_default_n_results(self, monkeypatch):
         captured = {}
         monkeypatch.setattr(
             retrieve_mod,
             "retrieve_context",
             lambda q, c, n: captured.update(query=q, category=c, n_results=n) or "context",
         )
-        retrieve_mod.retrieval_node(_base_state(query="some question", category="tax_code"))
-        assert captured == {"query": "some question", "category": "tax_code", "n_results": 5}
+        retrieve_mod.retrieval_node(
+            _base_state(query="original", search_query="refined question", category="tax_code")
+        )
+        assert captured == {"query": "refined question", "category": "tax_code", "n_results": 5}
+
+    def test_retrieval_node_falls_back_to_raw_query_when_search_query_missing(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            retrieve_mod,
+            "retrieve_context",
+            lambda q, c, n: captured.update(query=q) or "context",
+        )
+        state = _base_state(query="original question", category="tax_code")
+        state.pop("search_query")
+        retrieve_mod.retrieval_node(state)
+        assert captured["query"] == "original question"

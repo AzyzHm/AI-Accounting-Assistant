@@ -19,6 +19,7 @@ dependencies = [
     "tavily-python>=0.7,<0.8",
     "pypdf>=6.3,<7",
     "firebase-admin>=7.5,<8",
+    "requests>=2.32,<3",
 ]
 
 # This package ships no importable code of its own, config/graph/routes/services

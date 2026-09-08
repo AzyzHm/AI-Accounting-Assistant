@@ -37,6 +37,7 @@ export class ChatComponent {
   protected readonly conversationLoading = signal(false);
 
   protected readonly pending = signal(false);
+  protected readonly progressLabel = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
 
   constructor() {
@@ -112,6 +113,7 @@ export class ChatComponent {
 
     this.error.set(null);
     this.pending.set(true);
+    this.progressLabel.set(null);
     this.appendLocalMessage({ role: 'user', content: trimmed });
 
     try {
@@ -126,18 +128,38 @@ export class ChatComponent {
         await this.router.navigate(['/chat', chatId], { replaceUrl: true });
       }
 
-      const result = await firstValueFrom(this.chatApi.sendMessage(chatId, trimmed));
-      this.appendLocalMessage({
-        role: 'assistant',
-        content: result.response,
-        category: result.category
-      });
-      this.loadChats();
+      await this.streamAnswer(chatId, trimmed);
     } catch {
       this.error.set('Something went wrong reaching ComptaRAG, please try asking again.');
-    } finally {
       this.pending.set(false);
+      this.progressLabel.set(null);
     }
+  }
+
+  private streamAnswer(chatId: string, query: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.chatApi
+        .sendMessage(chatId, query)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (streamEvent) => {
+            if (streamEvent.event === 'progress') {
+              this.progressLabel.set(streamEvent.label);
+            } else if (streamEvent.event === 'done') {
+              this.appendLocalMessage({ role: 'assistant', content: streamEvent.response });
+              this.loadChats();
+            } else if (streamEvent.event === 'error') {
+              this.error.set('Something went wrong reaching ComptaRAG, please try asking again.');
+            }
+          },
+          error: (err) => reject(err),
+          complete: () => {
+            this.pending.set(false);
+            this.progressLabel.set(null);
+            resolve();
+          }
+        });
+    });
   }
 
   private loadChats(): void {
