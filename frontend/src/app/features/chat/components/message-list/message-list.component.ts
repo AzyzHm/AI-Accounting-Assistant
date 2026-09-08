@@ -1,12 +1,11 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { ChatMessage } from '@core/models/chat.model';
-import { CategoryBadgeComponent } from '@shared/components/category-badge/category-badge.component';
 
 @Component({
   selector: 'app-message-list',
   standalone: true,
-  imports: [CategoryBadgeComponent],
+  imports: [],
   templateUrl: './message-list.component.html',
   styleUrl: './message-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -14,4 +13,5 @@ import { CategoryBadgeComponent } from '@shared/components/category-badge/catego
 export class MessageListComponent {
   @Input() messages: ChatMessage[] = [];
   @Input() pending = false;
+  @Input() progressLabel: string | null = null;
 }

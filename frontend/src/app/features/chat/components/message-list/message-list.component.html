@@ -16,7 +16,6 @@
           <p class="entry__bubble entry__bubble--user">{{ message.content }}</p>
         } @else {
           <div class="entry__answer">
-            <app-category-badge [category]="message.category" />
             <p class="entry__bubble entry__bubble--assistant">{{ message.content }}</p>
           </div>
         }
@@ -28,7 +27,7 @@
         <span class="message-list__pending-dot"></span>
         <span class="message-list__pending-dot"></span>
         <span class="message-list__pending-dot"></span>
-        <span class="message-list__pending-label">ComptaRAG is checking the sources&hellip;</span>
+        <span class="message-list__pending-label">{{ progressLabel || 'Thinking' }}&hellip;</span>
       </div>
     }
   </div>
