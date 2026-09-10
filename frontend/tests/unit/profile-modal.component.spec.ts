@@ -9,7 +9,8 @@ const profile: UserProfile = {
   uid: 'u1',
   email: 'me@example.com',
   display_name: 'Old Name',
-  role: 'USER'
+  role: 'USER',
+  approved: true
 };
 
 function renderModal(overrides: Partial<Record<keyof AuthService, unknown>> = {}) {

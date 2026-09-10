@@ -87,3 +87,41 @@ describe('AuthService', () => {
     await expect(authService.updatePassword('new-secret', 'current-pass')).rejects.toThrow();
   });
 });
+
+describe('AuthService approval status', () => {
+  it('exposes isApproved as false until a profile with approved:true is synced', async () => {
+    const apiGet = jest.fn().mockReturnValue(of({ uid: 'u1', role: 'USER', approved: false }));
+
+    TestBed.configureTestingModule({
+      providers: [AuthService, { provide: ApiService, useValue: { get: apiGet, patch: jest.fn() } }]
+    });
+
+    const authService = TestBed.inject(AuthService);
+
+    expect(authService.isApproved()).toBe(false);
+
+    await authService.refreshProfile();
+
+    expect(apiGet).toHaveBeenCalledWith('/auth/me');
+    expect(authService.isApproved()).toBe(false);
+  });
+
+  it('reflects an approved profile after refreshProfile picks up the change', async () => {
+    const apiGet = jest
+      .fn()
+      .mockReturnValueOnce(of({ uid: 'u1', role: 'USER', approved: false }))
+      .mockReturnValueOnce(of({ uid: 'u1', role: 'USER', approved: true }));
+
+    TestBed.configureTestingModule({
+      providers: [AuthService, { provide: ApiService, useValue: { get: apiGet, patch: jest.fn() } }]
+    });
+
+    const authService = TestBed.inject(AuthService);
+    await authService.refreshProfile();
+    expect(authService.isApproved()).toBe(false);
+
+    await authService.refreshProfile();
+
+    expect(authService.isApproved()).toBe(true);
+  });
+});
