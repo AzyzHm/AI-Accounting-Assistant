@@ -123,6 +123,39 @@
   color: $color-ink-muted;
 }
 
+.admin-users__approved {
+  color: $color-ledger-teal-dark;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.admin-users__pending {
+  color: $color-fiscal-ochre-dark;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.admin-users__approve {
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-sm;
+  border: 1px solid $color-fiscal-ochre-dark;
+  background-color: transparent;
+  color: $color-fiscal-ochre-dark;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background-color 0.15s $ease-out;
+  @include focus-ring;
+
+  &:hover:not(:disabled) {
+    background-color: tint($color-fiscal-ochre, 12%);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
 .admin-users__delete {
   padding: $spacing-xs $spacing-sm;
   border-radius: $radius-sm;

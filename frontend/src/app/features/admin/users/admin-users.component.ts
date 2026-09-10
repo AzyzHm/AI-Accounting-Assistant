@@ -42,6 +42,9 @@ export class AdminUsersComponent implements OnInit {
   protected readonly totalAdmins = computed(
     () => this.users().filter((user) => user.role === 'ADMIN').length
   );
+  protected readonly totalPending = computed(
+    () => this.users().filter((user) => !user.approved).length
+  );
 
   ngOnInit(): void {
     this.load();
@@ -74,6 +77,13 @@ export class AdminUsersComponent implements OnInit {
     return this.viewerIsSuperAdmin() || user.role === 'USER';
   }
 
+  protected canApprove(user: UserProfile): boolean {
+    if (user.approved || user.uid === this.viewerUid()) {
+      return false;
+    }
+    return this.viewerIsSuperAdmin() || user.role === 'USER';
+  }
+
   protected changeRole(user: UserProfile, role: Role): void {
     if (role === user.role || this.pendingUid()) {
       return;
@@ -91,6 +101,28 @@ export class AdminUsersComponent implements OnInit {
       },
       error: () => {
         this.error.set(`Could not update the role for ${user.email ?? user.uid}.`);
+        this.pendingUid.set(null);
+      }
+    });
+  }
+
+  protected approveUser(user: UserProfile): void {
+    if (this.pendingUid()) {
+      return;
+    }
+
+    this.pendingUid.set(user.uid);
+    this.error.set(null);
+
+    this.adminApi.approveUser(user.uid).subscribe({
+      next: (updated) => {
+        this.users.update((current) =>
+          current.map((entry) => (entry.uid === updated.uid ? updated : entry))
+        );
+        this.pendingUid.set(null);
+      },
+      error: () => {
+        this.error.set(`Could not approve ${user.email ?? user.uid}.`);
         this.pendingUid.set(null);
       }
     });
