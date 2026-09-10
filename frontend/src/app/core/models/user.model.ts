@@ -5,6 +5,7 @@ export interface UserProfile {
   email: string | null;
   display_name: string | null;
   role: Role;
+  approved: boolean;
 }
 
 export interface UpdateProfileRequest {
