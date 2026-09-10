@@ -9,11 +9,15 @@ export const authGuard: CanActivateFn = async () => {
 
   await authService.ready;
 
-  if (authService.isAuthenticated()) {
-    return true;
+  if (!authService.isAuthenticated()) {
+    return router.parseUrl('/login');
   }
 
-  return router.parseUrl('/login');
+  if (!authService.isApproved()) {
+    return router.parseUrl('/pending-approval');
+  }
+
+  return true;
 };
 
 export const guestGuard: CanActivateFn = async () => {
@@ -23,6 +27,23 @@ export const guestGuard: CanActivateFn = async () => {
   await authService.ready;
 
   if (authService.isAuthenticated()) {
+    return router.parseUrl(authService.isApproved() ? '/chat' : '/pending-approval');
+  }
+
+  return true;
+};
+
+export const pendingApprovalGuard: CanActivateFn = async () => {
+  const authService = inject(AuthService);
+  const router = inject(Router);
+
+  await authService.ready;
+
+  if (!authService.isAuthenticated()) {
+    return router.parseUrl('/login');
+  }
+
+  if (authService.isApproved()) {
     return router.parseUrl('/chat');
   }
 

@@ -1,0 +1,38 @@
+<section class="pending">
+  <div class="pending__panel">
+    <div class="pending__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7" />
+        <path
+          d="M12 7.5v5l3.25 2"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </div>
+
+    <h1 class="pending__title">Waiting on admin approval</h1>
+    <p class="pending__subtitle">
+      @if (email) {
+        <span class="pending__email">{{ email }}</span> is signed in, but every new account needs an
+        admin or super admin to approve it before it can start chatting.
+      } @else {
+        Your account is signed in, but it needs an admin or super admin to approve it before it can
+        start chatting.
+      }
+    </p>
+
+    @if (stillPending()) {
+      <p class="pending__status" role="status">Still pending, check back shortly.</p>
+    }
+
+    <div class="pending__actions">
+      <app-button [disabled]="checking()" (clicked)="checkStatus()">
+        {{ checking() ? 'Checking…' : "I've been approved, check again" }}
+      </app-button>
+      <app-button variant="secondary" (clicked)="signOut()">Sign out</app-button>
+    </div>
+  </div>
+</section>

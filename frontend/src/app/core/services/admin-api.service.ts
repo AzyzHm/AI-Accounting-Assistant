@@ -17,6 +17,10 @@ export class AdminApiService {
     return this.api.patch<UserProfile>(`/admin/users/${uid}/role`, { role });
   }
 
+  approveUser(uid: string): Observable<UserProfile> {
+    return this.api.patch<UserProfile>(`/admin/users/${uid}/approve`, {});
+  }
+
   deleteUser(uid: string): Observable<void> {
     return this.api.delete<void>(`/admin/users/${uid}`);
   }

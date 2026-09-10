@@ -1,0 +1,96 @@
+@use '../../../../styles/variables' as *;
+@use '../../../../styles/mixins' as *;
+
+:host {
+  display: flex;
+  width: 100%;
+}
+
+.pending {
+  @include flex-center;
+  flex: 1;
+  padding: $spacing-lg;
+
+  @media (max-width: $breakpoint-sm) {
+    padding: $spacing-md;
+  }
+}
+
+.pending__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-md;
+  width: 100%;
+  max-width: 460px;
+  min-width: 0;
+  text-align: center;
+
+  animation: pending-panel-in 0.3s $ease-spring both;
+}
+
+.pending__icon {
+  @include flex-center;
+  width: 56px;
+  height: 56px;
+  border-radius: $radius-pill;
+  border: 1.5px solid $color-fiscal-ochre;
+  color: $color-fiscal-ochre-dark;
+  background-color: tint($color-fiscal-ochre, 10%);
+
+  svg {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+.pending__title {
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+.pending__subtitle {
+  margin: 0;
+  color: $color-ink-muted;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.pending__email {
+  color: $color-ink;
+  font-weight: 600;
+}
+
+.pending__status {
+  margin: 0;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  border: 1px solid $color-rule;
+  color: $color-ink-muted;
+  font-size: 0.875rem;
+}
+
+.pending__actions {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  width: 100%;
+  margin-top: $spacing-xs;
+}
+
+@keyframes pending-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@include reduced-motion {
+  .pending__panel {
+    animation: none;
+  }
+}

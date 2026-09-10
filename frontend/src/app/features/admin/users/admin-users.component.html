@@ -25,6 +25,10 @@
           <span class="admin-kpi__label">Total admins</span>
         </div>
       }
+      <div class="admin-kpi">
+        <span class="admin-kpi__value">{{ totalPending() }}</span>
+        <span class="admin-kpi__label">Pending approval</span>
+      </div>
     </div>
   }
 
@@ -38,6 +42,7 @@
             <th>Email</th>
             <th>Name</th>
             <th>Role</th>
+            <th>Status</th>
             @if (viewerIsSuperAdmin()) {
               <th>Change role</th>
             }
@@ -50,6 +55,22 @@
               <td>{{ user.email ?? '—' }}</td>
               <td>{{ user.display_name ?? '—' }}</td>
               <td><app-role-badge [role]="user.role" /></td>
+              <td>
+                @if (user.approved) {
+                  <span class="admin-users__approved">Approved</span>
+                } @else if (canApprove(user)) {
+                  <button
+                    type="button"
+                    class="admin-users__approve"
+                    [disabled]="pendingUid() === user.uid"
+                    (click)="approveUser(user)"
+                  >
+                    Approve
+                  </button>
+                } @else {
+                  <span class="admin-users__pending">Pending</span>
+                }
+              </td>
               @if (viewerIsSuperAdmin()) {
                 <td>
                   @if (canEditRole(user)) {

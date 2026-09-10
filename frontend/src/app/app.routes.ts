@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { pendingApprovalGuard } from '@core/guards/auth.guard';
+
 export const routes: Routes = [
   {
     path: '',
@@ -12,6 +14,14 @@ export const routes: Routes = [
   {
     path: 'login',
     loadChildren: () => import('@features/auth/auth.routes').then((m) => m.AUTH_ROUTES)
+  },
+  {
+    path: 'pending-approval',
+    canActivate: [pendingApprovalGuard],
+    loadComponent: () =>
+      import('@features/auth/pending-approval/pending-approval.component').then(
+        (m) => m.PendingApprovalComponent
+      )
   },
   {
     path: 'admin',

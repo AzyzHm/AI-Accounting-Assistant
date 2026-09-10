@@ -40,6 +40,7 @@ export class AuthService {
   readonly isAuthenticated = computed(
     () => this.firebaseUserSignal() !== null && this.profileSignal() !== null
   );
+  readonly isApproved = computed(() => this.profileSignal()?.approved ?? false);
 
   readonly ready: Promise<void>;
 
@@ -78,6 +79,10 @@ export class AuthService {
   async logout(): Promise<void> {
     await signOut(firebaseAuth);
     this.profileSignal.set(null);
+  }
+
+  async refreshProfile(): Promise<void> {
+    await this.syncProfile();
   }
 
   getIdToken(): Promise<string | null> {

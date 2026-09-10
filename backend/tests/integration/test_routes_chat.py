@@ -1,5 +1,49 @@
 import json
 
+from core.security import get_current_user
+from tests.conftest import DEFAULT_TEST_USER
+
+
+class TestUnapprovedUserBlocked:
+    """The shared `app` fixture always uses an approved DEFAULT_TEST_USER,
+    so these temporarily swap get_current_user's override to exercise an
+    unapproved account instead, the same override pattern
+    test_routes_admin.py and test_routes_auth.py use, then restore it so
+    later tests in the run keep seeing an approved caller.
+    """
+
+    def test_unapproved_user_cannot_create_a_chat(self, app):
+        client, _fake_graph, _fake_db = app
+        from main import app as _app
+
+        _app.dependency_overrides[get_current_user] = lambda: {
+            "uid": "pending-uid",
+            "role": "USER",
+            "approved": False,
+        }
+        try:
+            response = client.post("/chats/")
+        finally:
+            _app.dependency_overrides[get_current_user] = lambda: DEFAULT_TEST_USER
+
+        assert response.status_code == 403
+
+    def test_unapproved_user_cannot_list_chats(self, app):
+        client, _fake_graph, _fake_db = app
+        from main import app as _app
+
+        _app.dependency_overrides[get_current_user] = lambda: {
+            "uid": "pending-uid",
+            "role": "USER",
+            "approved": False,
+        }
+        try:
+            response = client.get("/chats/")
+        finally:
+            _app.dependency_overrides[get_current_user] = lambda: DEFAULT_TEST_USER
+
+        assert response.status_code == 403
+
 
 class TestCreateChat:
     def test_creates_an_empty_chat_owned_by_the_caller(self, app):

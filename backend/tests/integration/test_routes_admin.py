@@ -88,6 +88,17 @@ class TestUpdateUserRole:
         assert response.status_code == 200
         assert response.json()["role"] == "ADMIN"
 
+    def test_granting_a_role_also_approves_the_account(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "super-1", "role": "SUPER_ADMIN"},
+            users={"target": {"email": "t@t.com", "role": "USER", "approved": False}},
+        )
+
+        response = client.patch("/admin/users/target/role", json={"role": "ADMIN"})
+
+        assert response.status_code == 200
+        assert response.json()["approved"] is True
+
     def test_super_admin_can_demote_an_admin_back_to_user(self, admin_client):
         client, _fake_db = admin_client(
             current_user={"uid": "super-1", "role": "SUPER_ADMIN"},
@@ -135,6 +146,79 @@ class TestUpdateUserRole:
         )
 
         response = client.patch("/admin/users/ghost/role", json={"role": "USER"})
+
+        assert response.status_code == 404
+
+
+class TestApproveUser:
+    def test_admin_can_approve_a_pending_user(self, admin_client):
+        client, fake_db = admin_client(
+            current_user={"uid": "admin-1", "role": "ADMIN"},
+            users={"target": {"email": "t@t.com", "role": "USER", "approved": False}},
+        )
+
+        response = client.patch("/admin/users/target/approve")
+
+        assert response.status_code == 200
+        assert response.json()["approved"] is True
+        assert fake_db.collection("users").document("target").get().to_dict()["approved"] is True
+
+    def test_super_admin_can_approve_a_pending_admin(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "super-1", "role": "SUPER_ADMIN"},
+            users={"target": {"email": "t@t.com", "role": "ADMIN", "approved": False}},
+        )
+
+        response = client.patch("/admin/users/target/approve")
+
+        assert response.status_code == 200
+        assert response.json()["approved"] is True
+
+    def test_admin_cannot_approve_an_admin_account(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "admin-1", "role": "ADMIN"},
+            users={"target": {"email": "t@t.com", "role": "ADMIN", "approved": False}},
+        )
+
+        response = client.patch("/admin/users/target/approve")
+
+        assert response.status_code == 403
+
+    def test_approving_an_already_approved_user_is_a_no_op(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "admin-1", "role": "ADMIN"},
+            users={"target": {"email": "t@t.com", "role": "USER", "approved": True}},
+        )
+
+        response = client.patch("/admin/users/target/approve")
+
+        assert response.status_code == 200
+        assert response.json()["approved"] is True
+
+    def test_cannot_approve_super_admin(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "admin-1", "role": "ADMIN"},
+            users={"super-1": {"email": "s@a.com", "role": "SUPER_ADMIN", "approved": True}},
+        )
+
+        response = client.patch("/admin/users/super-1/approve")
+
+        assert response.status_code == 403
+
+    def test_plain_user_cannot_approve_anyone(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "u1", "role": "USER"},
+            users={"target": {"email": "t@t.com", "role": "USER", "approved": False}},
+        )
+
+        response = client.patch("/admin/users/target/approve")
+
+        assert response.status_code == 403
+
+    def test_returns_404_for_unknown_user(self, admin_client):
+        client, _fake_db = admin_client(current_user={"uid": "admin-1", "role": "ADMIN"}, users={})
+
+        response = client.patch("/admin/users/ghost/approve")
 
         assert response.status_code == 404
 

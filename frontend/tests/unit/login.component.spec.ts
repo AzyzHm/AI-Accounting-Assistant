@@ -19,7 +19,7 @@ describe('LoginComponent', () => {
 
     await render(LoginComponent, {
       providers: [
-        { provide: AuthService, useValue: { signInWithEmail } },
+        { provide: AuthService, useValue: { signInWithEmail, isApproved: () => true } },
         { provide: Router, useValue: { navigateByUrl } },
         { provide: ActivatedRoute, useValue: activatedRouteStub() }
       ]
@@ -40,7 +40,7 @@ describe('LoginComponent', () => {
 
     await render(LoginComponent, {
       providers: [
-        { provide: AuthService, useValue: { registerWithEmail } },
+        { provide: AuthService, useValue: { registerWithEmail, isApproved: () => true } },
         { provide: Router, useValue: { navigateByUrl } },
         { provide: ActivatedRoute, useValue: activatedRouteStub() }
       ]
@@ -56,10 +56,34 @@ describe('LoginComponent', () => {
     expect(navigateByUrl).toHaveBeenCalledWith('/chat');
   });
 
+  it('sends a brand-new, unapproved sign-up to /pending-approval instead of /chat', async () => {
+    const registerWithEmail = jest.fn().mockResolvedValue(undefined);
+    const navigateByUrl = jest.fn().mockResolvedValue(true);
+
+    await render(LoginComponent, {
+      providers: [
+        { provide: AuthService, useValue: { registerWithEmail, isApproved: () => false } },
+        { provide: Router, useValue: { navigateByUrl } },
+        { provide: ActivatedRoute, useValue: activatedRouteStub() }
+      ]
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText(/create one/i));
+    await user.type(screen.getByLabelText('Email'), 'new@example.com');
+    await user.type(screen.getByLabelText('Password'), 'hunter22');
+    await user.click(screen.getByRole('button', { name: /create account/i }));
+
+    expect(navigateByUrl).toHaveBeenCalledWith('/pending-approval');
+  });
+
   it('opens directly in register mode when the mode=register query param is set', async () => {
     await render(LoginComponent, {
       providers: [
-        { provide: AuthService, useValue: { registerWithEmail: jest.fn() } },
+        {
+          provide: AuthService,
+          useValue: { registerWithEmail: jest.fn(), isApproved: () => true }
+        },
         { provide: Router, useValue: { navigateByUrl: jest.fn() } },
         { provide: ActivatedRoute, useValue: activatedRouteStub({ mode: 'register' }) }
       ]
@@ -73,7 +97,7 @@ describe('LoginComponent', () => {
 
     await render(LoginComponent, {
       providers: [
-        { provide: AuthService, useValue: { signInWithEmail } },
+        { provide: AuthService, useValue: { signInWithEmail, isApproved: () => true } },
         { provide: Router, useValue: { navigateByUrl: jest.fn() } },
         { provide: ActivatedRoute, useValue: activatedRouteStub() }
       ]
@@ -93,7 +117,7 @@ describe('LoginComponent', () => {
 
     await render(LoginComponent, {
       providers: [
-        { provide: AuthService, useValue: { signInWithGoogle } },
+        { provide: AuthService, useValue: { signInWithGoogle, isApproved: () => true } },
         { provide: Router, useValue: { navigateByUrl } },
         { provide: ActivatedRoute, useValue: activatedRouteStub() }
       ]

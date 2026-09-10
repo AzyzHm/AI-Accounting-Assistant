@@ -9,6 +9,7 @@ DEFAULT_TEST_USER = {
     "email": "test@example.com",
     "display_name": "Test User",
     "role": "USER",
+    "approved": True,
 }
 
 

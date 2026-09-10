@@ -1,5 +1,73 @@
-from core.security import update_profile_fields
+import pytest
+from fastapi import HTTPException
+
+from core.security import _get_or_create_profile, require_approved, update_profile_fields
 from tests.setup.fakes import FakeFirestore
+
+
+class TestGetOrCreateProfile:
+    def test_first_ever_account_becomes_super_admin_and_is_approved(self, monkeypatch):
+        import core.security as core_security
+
+        fake_db = FakeFirestore()
+        monkeypatch.setattr(core_security, "get_firestore_client", lambda: fake_db)
+
+        profile = _get_or_create_profile({"uid": "u1", "email": "a@a.com"})
+
+        assert profile["role"] == "SUPER_ADMIN"
+        assert profile["approved"] is True
+
+    def test_subsequent_accounts_default_to_user_and_are_unapproved(self, monkeypatch):
+        import core.security as core_security
+
+        fake_db = FakeFirestore(users={"existing": {"email": "e@e.com", "role": "SUPER_ADMIN"}})
+        monkeypatch.setattr(core_security, "get_firestore_client", lambda: fake_db)
+
+        profile = _get_or_create_profile({"uid": "u2", "email": "b@b.com"})
+
+        assert profile["role"] == "USER"
+        assert profile["approved"] is False
+
+    def test_this_applies_to_google_sign_in_the_same_as_email_password(self, monkeypatch):
+        import core.security as core_security
+
+        fake_db = FakeFirestore(users={"existing": {"email": "e@e.com", "role": "SUPER_ADMIN"}})
+        monkeypatch.setattr(core_security, "get_firestore_client", lambda: fake_db)
+
+        profile = _get_or_create_profile({"uid": "u3", "email": "c@c.com", "name": "Carol"})
+
+        assert profile["approved"] is False
+
+    def test_returning_user_keeps_their_stored_approval_state(self, monkeypatch):
+        import core.security as core_security
+
+        fake_db = FakeFirestore(
+            users={"u1": {"email": "a@a.com", "role": "USER", "approved": True}}
+        )
+        monkeypatch.setattr(core_security, "get_firestore_client", lambda: fake_db)
+
+        profile = _get_or_create_profile({"uid": "u1", "email": "a@a.com"})
+
+        assert profile["approved"] is True
+
+
+class TestRequireApproved:
+    def test_allows_an_approved_user_through(self):
+        current_user = {"uid": "u1", "role": "USER", "approved": True}
+
+        assert require_approved(current_user) == current_user
+
+    def test_rejects_an_unapproved_user_with_403(self):
+        with pytest.raises(HTTPException) as exc_info:
+            require_approved({"uid": "u1", "role": "USER", "approved": False})
+
+        assert exc_info.value.status_code == 403
+
+    def test_rejects_a_profile_missing_the_approved_field(self):
+        with pytest.raises(HTTPException) as exc_info:
+            require_approved({"uid": "u1", "role": "USER"})
+
+        assert exc_info.value.status_code == 403
 
 
 class TestUpdateProfileFields:

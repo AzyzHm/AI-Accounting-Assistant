@@ -22,9 +22,14 @@ def _extract_bearer_token(request: Request) -> str:
 def _get_or_create_profile(decoded_token: dict) -> dict:
     """Fetches the Firestore profile for this uid, creating it on first sign-in.
 
-    The very first account ever created becomes SUPER_ADMIN so there is
-    always at least one admin able to promote everyone else. Every
-    subsequent account defaults to USER.
+    The very first account ever created becomes SUPER_ADMIN and is approved
+    immediately, so there is always at least one admin able to approve and
+    promote everyone else. Every subsequent account defaults to USER and is
+    created unapproved, they cannot use the app (see `require_approved`)
+    until an ADMIN or SUPER_ADMIN approves them from the admin dashboard.
+    This applies no matter how the account was created (email/password or
+    Google), the check happens here, after Firebase has already verified
+    the caller's identity.
     """
     db = get_firestore_client()
     uid = decoded_token["uid"]
@@ -39,6 +44,7 @@ def _get_or_create_profile(decoded_token: dict) -> dict:
         "email": decoded_token.get("email"),
         "display_name": decoded_token.get("name"),
         "role": Role.SUPER_ADMIN.value if is_first_user else Role.USER.value,
+        "approved": is_first_user,
         "created_at": SERVER_TIMESTAMP,
     }
     doc_ref.set(profile)
@@ -70,12 +76,20 @@ def update_profile_fields(
 
 def get_current_user(request: Request) -> dict:
     """Verifies the Firebase ID token on the request and returns the caller's
-    Firestore profile (uid, email, display_name, role). Raises 401 if the
-    token is missing, malformed, expired, or revoked.
+    Firestore profile (uid, email, display_name, role, approved). Raises 401
+    if the token is missing, malformed, expired, or revoked.
+
+    `clock_skew_seconds=60` tolerates the caller's machine clock being off
+    by up to a minute (the maximum this SDK allows). Without it, a local
+    dev machine whose clock has drifted gets "Token used too early/late"
+    errors on every request, forcing manual clock syncs before the app
+    works at all. Firebase issues and expires tokens using its own server
+    clock regardless, so this only relaxes the local comparison, it does
+    not change how long a token is actually valid for.
     """
     token = _extract_bearer_token(request)
     try:
-        decoded_token = firebase_auth.verify_id_token(token)
+        decoded_token = firebase_auth.verify_id_token(token, clock_skew_seconds=60)
     except (
         firebase_auth.InvalidIdTokenError,
         firebase_auth.ExpiredIdTokenError,
@@ -86,6 +100,20 @@ def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
 
     return _get_or_create_profile(decoded_token)
+
+
+def require_approved(current_user: dict = Depends(get_current_user)) -> dict:
+    """FastAPI dependency, raises 403 unless the caller's account has been
+    approved by an ADMIN or SUPER_ADMIN. Use as `Depends(require_approved)`
+    on every route a brand-new sign-up must not be able to reach yet (chat,
+    and anything else that does real work). `/auth/me` deliberately does
+    NOT use this, an unapproved caller still needs it to learn their own
+    status so the frontend can show a "pending approval" screen instead of
+    a bare 403.
+    """
+    if not current_user.get("approved", False):
+        raise HTTPException(status_code=403, detail="Account pending admin approval")
+    return current_user
 
 
 def require_roles(*roles: Role):

@@ -8,26 +8,50 @@ import { AuthService } from '@core/services/auth.service';
 import { UserProfile } from '@core/models/user.model';
 
 const usersForAdminViewer: UserProfile[] = [
-  { uid: 'target-uid', email: 'them@example.com', display_name: 'Them', role: 'USER' }
+  {
+    uid: 'target-uid',
+    email: 'them@example.com',
+    display_name: 'Them',
+    role: 'USER',
+    approved: true
+  }
 ];
 
 const usersForSuperAdminViewer: UserProfile[] = [
-  { uid: 'target-uid', email: 'them@example.com', display_name: 'Them', role: 'USER' },
-  { uid: 'other-admin-uid', email: 'other-admin@example.com', display_name: 'Other', role: 'ADMIN' }
+  {
+    uid: 'target-uid',
+    email: 'them@example.com',
+    display_name: 'Them',
+    role: 'USER',
+    approved: true
+  },
+  {
+    uid: 'other-admin-uid',
+    email: 'other-admin@example.com',
+    display_name: 'Other',
+    role: 'ADMIN',
+    approved: true
+  }
 ];
 
 function renderPage(
   viewerRole: 'ADMIN' | 'SUPER_ADMIN',
   users: UserProfile[],
-  overrides: Partial<{ listUsers: jest.Mock; updateRole: jest.Mock; deleteUser: jest.Mock }> = {}
+  overrides: Partial<{
+    listUsers: jest.Mock;
+    updateRole: jest.Mock;
+    deleteUser: jest.Mock;
+    approveUser: jest.Mock;
+  }> = {}
 ) {
   const listUsers = overrides.listUsers ?? jest.fn().mockReturnValue(of(users));
   const updateRole = overrides.updateRole ?? jest.fn();
   const deleteUser = overrides.deleteUser ?? jest.fn().mockReturnValue(of(undefined));
+  const approveUser = overrides.approveUser ?? jest.fn();
 
   return render(AdminUsersComponent, {
     providers: [
-      { provide: AdminApiService, useValue: { listUsers, updateRole, deleteUser } },
+      { provide: AdminApiService, useValue: { listUsers, updateRole, deleteUser, approveUser } },
       {
         provide: AuthService,
         useValue: {
@@ -36,7 +60,7 @@ function renderPage(
         }
       }
     ]
-  }).then((result) => ({ result, listUsers, updateRole, deleteUser }));
+  }).then((result) => ({ result, listUsers, updateRole, deleteUser, approveUser }));
 }
 
 describe('AdminUsersComponent', () => {
@@ -77,7 +101,8 @@ describe('AdminUsersComponent', () => {
         uid: 'admin-row-uid',
         email: 'other-admin@example.com',
         display_name: 'Other',
-        role: 'ADMIN'
+        role: 'ADMIN',
+        approved: true
       }
     ]);
 
@@ -107,7 +132,13 @@ describe('AdminUsersComponent', () => {
   it("does not offer a role selector or delete button for the SUPER_ADMIN's own row", async () => {
     await renderPage('SUPER_ADMIN', [
       ...usersForSuperAdminViewer,
-      { uid: 'viewer-uid', email: 'me@example.com', display_name: 'Me', role: 'ADMIN' }
+      {
+        uid: 'viewer-uid',
+        email: 'me@example.com',
+        display_name: 'Me',
+        role: 'ADMIN',
+        approved: true
+      }
     ]);
 
     await screen.findByText('me@example.com');
@@ -205,5 +236,92 @@ describe('AdminUsersComponent', () => {
 
     expect(within(usersKpi).getByText('1')).toBeTruthy();
     expect(within(adminsKpi).getByText('1')).toBeTruthy();
+  });
+
+  it('shows an Approve button for a pending USER row and counts it in the KPI', async () => {
+    await renderPage('ADMIN', [
+      {
+        uid: 'pending-uid',
+        email: 'pending@example.com',
+        display_name: null,
+        role: 'USER',
+        approved: false
+      }
+    ]);
+
+    await screen.findByText('pending@example.com');
+    expect(screen.getByText('Pending approval').closest('.admin-kpi')).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: /approve/i })).toBeTruthy();
+  });
+
+  it('lets an ADMIN approve a pending USER, replacing the row with Approved', async () => {
+    const { approveUser } = await renderPage(
+      'ADMIN',
+      [
+        {
+          uid: 'pending-uid',
+          email: 'pending@example.com',
+          display_name: null,
+          role: 'USER',
+          approved: false
+        }
+      ],
+      {
+        approveUser: jest.fn().mockReturnValue(
+          of({
+            uid: 'pending-uid',
+            email: 'pending@example.com',
+            display_name: null,
+            role: 'USER',
+            approved: true
+          })
+        )
+      }
+    );
+
+    await screen.findByText('pending@example.com');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /approve/i }));
+
+    expect(approveUser).toHaveBeenCalledWith('pending-uid');
+    expect(await screen.findByText('Approved')).toBeTruthy();
+  });
+
+  it('never offers an ADMIN an approve button for a pending ADMIN row', async () => {
+    await renderPage('ADMIN', [
+      {
+        uid: 'pending-admin-uid',
+        email: 'pending-admin@example.com',
+        display_name: null,
+        role: 'ADMIN',
+        approved: false
+      }
+    ]);
+
+    await screen.findByText('pending-admin@example.com');
+    expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+    expect(screen.getByText('Pending')).toBeTruthy();
+  });
+
+  it('shows an error message when approving fails', async () => {
+    await renderPage(
+      'ADMIN',
+      [
+        {
+          uid: 'pending-uid',
+          email: 'pending@example.com',
+          display_name: null,
+          role: 'USER',
+          approved: false
+        }
+      ],
+      { approveUser: jest.fn().mockReturnValue(throwError(() => new Error('nope'))) }
+    );
+
+    await screen.findByText('pending@example.com');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /approve/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not approve/i);
   });
 });

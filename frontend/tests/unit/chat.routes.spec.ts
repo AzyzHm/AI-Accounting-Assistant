@@ -33,7 +33,11 @@ describe('CHAT_ROUTES', () => {
         },
         {
           provide: AuthService,
-          useValue: { ready: Promise.resolve(), isAuthenticated: () => true }
+          useValue: {
+            ready: Promise.resolve(),
+            isAuthenticated: () => true,
+            isApproved: () => true
+          }
         }
       ]
     });
