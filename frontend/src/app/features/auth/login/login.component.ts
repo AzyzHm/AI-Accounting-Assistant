@@ -50,8 +50,6 @@ export class LoginComponent {
   protected readonly error = signal<string | null>(null);
 
   constructor() {
-    // Lets the home page's "Get started" button land straight on the
-    // registration form via /login?mode=register.
     this.route.queryParamMap.pipe(take(1)).subscribe((params) => {
       if (params.get('mode') === 'register') {
         this.mode.set('register');
@@ -84,7 +82,7 @@ export class LoginComponent {
       } else {
         await this.authService.registerWithEmail(email, password);
       }
-      await this.router.navigateByUrl('/chat');
+      await this.navigateAfterAuth();
     } catch (err) {
       this.error.set(friendlyAuthError(err));
     } finally {
@@ -102,11 +100,15 @@ export class LoginComponent {
 
     try {
       await this.authService.signInWithGoogle();
-      await this.router.navigateByUrl('/chat');
+      await this.navigateAfterAuth();
     } catch (err) {
       this.error.set(friendlyAuthError(err));
     } finally {
       this.pending.set(false);
     }
+  }
+
+  private async navigateAfterAuth(): Promise<void> {
+    await this.router.navigateByUrl(this.authService.isApproved() ? '/chat' : '/pending-approval');
   }
 }
