@@ -16,7 +16,7 @@ from core.chats import (
     touch_chat,
 )
 from core.logger import get_logger
-from core.security import get_current_user
+from core.security import require_approved
 from core.stats import record_usage
 from graph.workflow import NODE_LABELS, app
 
@@ -86,19 +86,19 @@ def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
 
 
 @router.post("/")
-async def start_chat(current_user: dict = Depends(get_current_user)):
+async def start_chat(current_user: dict = Depends(require_approved)):
     """Creates a new, empty chat owned by the caller."""
     return create_chat(current_user["uid"])
 
 
 @router.get("/")
-async def list_my_chats(current_user: dict = Depends(get_current_user)):
+async def list_my_chats(current_user: dict = Depends(require_approved)):
     """Lists the caller's chats, most recently active first."""
     return list_chats(current_user["uid"])
 
 
 @router.get("/{chat_id}")
-async def get_chat_detail(chat_id: str, current_user: dict = Depends(get_current_user)):
+async def get_chat_detail(chat_id: str, current_user: dict = Depends(require_approved)):
     """Returns a chat and its full message history. Only the owner can read it."""
     chat = _owned_chat_or_404(chat_id, current_user["uid"])
     chat["messages"] = get_messages(chat_id)
@@ -107,7 +107,7 @@ async def get_chat_detail(chat_id: str, current_user: dict = Depends(get_current
 
 @router.patch("/{chat_id}")
 async def rename_my_chat(
-    chat_id: str, body: RenameRequest, current_user: dict = Depends(get_current_user)
+    chat_id: str, body: RenameRequest, current_user: dict = Depends(require_approved)
 ):
     """Renames a chat. Only the owner can rename it."""
     _owned_chat_or_404(chat_id, current_user["uid"])
@@ -116,7 +116,7 @@ async def rename_my_chat(
 
 
 @router.delete("/{chat_id}", status_code=204)
-async def delete_my_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_my_chat(chat_id: str, current_user: dict = Depends(require_approved)):
     """Deletes a chat and all of its messages. Only the owner can delete it."""
     _owned_chat_or_404(chat_id, current_user["uid"])
     delete_chat(chat_id)
@@ -124,7 +124,7 @@ async def delete_my_chat(chat_id: str, current_user: dict = Depends(get_current_
 
 @router.post("/{chat_id}/messages")
 async def send_message(
-    chat_id: str, body: MessageRequest, current_user: dict = Depends(get_current_user)
+    chat_id: str, body: MessageRequest, current_user: dict = Depends(require_approved)
 ):
     """Sends a message in an existing chat and streams the agent's progress.
 

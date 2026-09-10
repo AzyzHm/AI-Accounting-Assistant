@@ -70,8 +70,39 @@ async def update_user_role(
     if target["role"] == Role.SUPER_ADMIN.value:
         raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be modified")
 
-    doc_ref.update({"role": body.role.value})
-    return {"uid": uid, **target, "role": body.role.value}
+    doc_ref.update({"role": body.role.value, "approved": True})
+    return {"uid": uid, **target, "role": body.role.value, "approved": True}
+
+
+@router.patch("/users/{uid}/approve")
+async def approve_user(
+    uid: str,
+    current_user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
+):
+    """Approves a pending sign-up so the account can start using the app.
+
+    Every new account is created unapproved and stays locked out of chat
+    until an ADMIN or SUPER_ADMIN approves it here, no matter how they
+    signed up (email/password or Google). Visibility mirrors the rest of
+    this router: ADMIN can only approve USER accounts, SUPER_ADMIN can
+    approve USER and ADMIN accounts. Approving an already-approved account
+    is a harmless no-op.
+    """
+    db = get_firestore_client()
+    doc_ref = db.collection(USERS_COLLECTION).document(uid)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target = doc.to_dict()
+    if target["role"] == Role.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be modified")
+
+    if current_user["role"] == Role.ADMIN.value and target["role"] != Role.USER.value:
+        raise HTTPException(status_code=403, detail="ADMIN can only approve USER accounts")
+
+    doc_ref.update({"approved": True})
+    return {"uid": uid, **target, "approved": True}
 
 
 @router.delete("/users/{uid}", status_code=204)
