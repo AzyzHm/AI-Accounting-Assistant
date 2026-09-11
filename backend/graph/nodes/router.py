@@ -1,6 +1,6 @@
 import json
 
-from config.models import getResponseFromLLM
+from config.llm_providers import getResponseFromLLM
 from config.prompts import router_prompt
 from core.logger import get_logger
 from graph.nodes.history_utils import format_history
