@@ -9,17 +9,16 @@ from tests.setup.fakes import FakeFirestore
 def auth_client(monkeypatch):
     """
     Yields a factory `make_client(current_user, users=None)` returning a
-    TestClient with get_current_user overridden and core.security / core.stats
-    both backed by the same fresh FakeFirestore.
+    TestClient with get_current_user overridden and services.users_service /
+    services.stats_service both backed by the same fresh FakeFirestore.
     """
-    import core.security as core_security
-    import core.stats as core_stats
     from main import app as _app
+    from services import stats_service, users_service
 
     def make_client(current_user, users=None):
         fake_db = FakeFirestore(users=users or {})
-        monkeypatch.setattr(core_security, "get_firestore_client", lambda: fake_db)
-        monkeypatch.setattr(core_stats, "get_firestore_client", lambda: fake_db)
+        monkeypatch.setattr(users_service, "get_firestore_client", lambda: fake_db)
+        monkeypatch.setattr(stats_service, "get_firestore_client", lambda: fake_db)
         _app.dependency_overrides[get_current_user] = lambda: current_user
         return TestClient(_app), fake_db
 
