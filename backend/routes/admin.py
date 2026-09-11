@@ -2,18 +2,14 @@ import contextlib
 
 from fastapi import APIRouter, Depends, HTTPException
 from firebase_admin import auth as firebase_auth
-from pydantic import BaseModel
 
-from config.firebase import get_firestore_client
-from core.security import USERS_COLLECTION, require_roles
-from core.stats import list_recent_logins, list_usage_totals
-from models.roles import Role
+from core.security import require_roles
+from schemas.admin import RoleUpdateRequest
+from schemas.roles import Role
+from services import users_service
+from services.stats_service import list_recent_logins, list_usage_totals
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
-
-
-class RoleUpdateRequest(BaseModel):
-    role: Role
 
 
 @router.get("/users")
@@ -26,18 +22,8 @@ async def list_users(
     not even for itself. ADMIN sees USER accounts only. SUPER_ADMIN sees
     USER and ADMIN accounts.
     """
-    db = get_firestore_client()
-    docs = db.collection(USERS_COLLECTION).stream()
-    visible_roles = (
-        {Role.USER.value, Role.ADMIN.value}
-        if current_user["role"] == Role.SUPER_ADMIN.value
-        else {Role.USER.value}
-    )
-    return [
-        {"uid": doc.id, **doc.to_dict()}
-        for doc in docs
-        if doc.to_dict().get("role") in visible_roles
-    ]
+    visible = users_service.list_visible_profiles(current_user, exclude_viewer=False)
+    return [{"uid": uid, **profile} for uid, profile in visible.items()]
 
 
 @router.patch("/users/{uid}/role")
@@ -60,18 +46,14 @@ async def update_user_role(
     if uid == current_user["uid"]:
         raise HTTPException(status_code=400, detail="You cannot change your own role")
 
-    db = get_firestore_client()
-    doc_ref = db.collection(USERS_COLLECTION).document(uid)
-    doc = doc_ref.get()
-    if not doc.exists:
+    target = users_service.get_profile(uid)
+    if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    target = doc.to_dict()
     if target["role"] == Role.SUPER_ADMIN.value:
         raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be modified")
 
-    doc_ref.update({"role": body.role.value, "approved": True})
-    return {"uid": uid, **target, "role": body.role.value, "approved": True}
+    return users_service.update_role(uid, body.role.value)
 
 
 @router.patch("/users/{uid}/approve")
@@ -88,21 +70,17 @@ async def approve_user(
     approve USER and ADMIN accounts. Approving an already-approved account
     is a harmless no-op.
     """
-    db = get_firestore_client()
-    doc_ref = db.collection(USERS_COLLECTION).document(uid)
-    doc = doc_ref.get()
-    if not doc.exists:
+    target = users_service.get_profile(uid)
+    if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    target = doc.to_dict()
     if target["role"] == Role.SUPER_ADMIN.value:
         raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be modified")
 
     if current_user["role"] == Role.ADMIN.value and target["role"] != Role.USER.value:
         raise HTTPException(status_code=403, detail="ADMIN can only approve USER accounts")
 
-    doc_ref.update({"approved": True})
-    return {"uid": uid, **target, "approved": True}
+    return users_service.approve(uid)
 
 
 @router.delete("/users/{uid}", status_code=204)
@@ -117,20 +95,18 @@ async def delete_user(
     if uid == current_user["uid"]:
         raise HTTPException(status_code=400, detail="You cannot delete your own account")
 
-    db = get_firestore_client()
-    doc_ref = db.collection(USERS_COLLECTION).document(uid)
-    doc = doc_ref.get()
-    if not doc.exists:
+    target = users_service.get_profile(uid)
+    if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    target_role = doc.to_dict().get("role")
+    target_role = target.get("role")
     if target_role == Role.SUPER_ADMIN.value:
         raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be deleted")
 
     if current_user["role"] == Role.ADMIN.value and target_role != Role.USER.value:
         raise HTTPException(status_code=403, detail="ADMIN can only delete USER accounts")
 
-    doc_ref.delete()
+    users_service.delete_profile(uid)
     with contextlib.suppress(firebase_auth.UserNotFoundError):
         firebase_auth.delete_user(uid)
 

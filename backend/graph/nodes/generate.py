@@ -1,4 +1,4 @@
-from config.models import getResponseFromLLM
+from config.llm_providers import getResponseFromLLM
 from config.prompts import expert_prompt_v1, expert_prompt_v2
 from core.logger import get_logger
 from graph.nodes.history_utils import format_history

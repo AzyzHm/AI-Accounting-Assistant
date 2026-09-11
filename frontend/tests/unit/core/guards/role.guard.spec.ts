@@ -5,10 +5,11 @@ import { roleGuard } from '@core/guards/role.guard';
 import { AuthService } from '@core/services/auth.service';
 import { Role } from '@core/models/user.model';
 
-function setup(isAuthenticated: boolean, role: Role | null) {
+function setup(isAuthenticated: boolean, role: Role | null, isApproved = true) {
   const authService = {
     ready: Promise.resolve(),
     isAuthenticated: () => isAuthenticated,
+    isApproved: () => isApproved,
     role: () => role
   };
   const urlTree = {} as UrlTree;
@@ -51,6 +52,16 @@ describe('roleGuard', () => {
     const result = await TestBed.runInInjectionContext(() => guard(null as never, null as never));
 
     expect(router.parseUrl).toHaveBeenCalledWith('/chat');
+    expect(result).toBe(urlTree);
+  });
+
+  it('sends an unapproved account to /pending-approval even with an allowed role', async () => {
+    const { router, urlTree } = setup(true, 'ADMIN', false);
+    const guard = roleGuard('ADMIN', 'SUPER_ADMIN');
+
+    const result = await TestBed.runInInjectionContext(() => guard(null as never, null as never));
+
+    expect(router.parseUrl).toHaveBeenCalledWith('/pending-approval');
     expect(result).toBe(urlTree);
   });
 });

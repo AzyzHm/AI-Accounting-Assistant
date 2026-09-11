@@ -1,4 +1,4 @@
-import core.chats as chats_mod
+import services.chats_service as chats_mod
 from tests.setup.fakes import FakeFirestore
 
 

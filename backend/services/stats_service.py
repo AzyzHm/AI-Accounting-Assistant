@@ -1,7 +1,7 @@
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP, Increment
 
 from config.firebase import get_firestore_client
-from models.roles import Role
+from services import users_service
 
 LOGIN_EVENTS_COLLECTION = "login_events"
 USAGE_TOTALS_COLLECTION = "usage_totals"
@@ -37,35 +37,13 @@ def record_login(uid: str, email: str | None, ip: str | None, user_agent: str | 
     )
 
 
-def _visible_users(viewer: dict) -> dict[str, dict]:
-    """Returns {uid: profile} for every account the viewer is allowed to see
-    on the admin dashboard, using the same rule as the user list: ADMIN sees
-    USER accounts, SUPER_ADMIN sees USER and ADMIN accounts. The viewer's own
-    account is never included, so nobody ever sees themselves in a log or
-    usage list."""
-    db = get_firestore_client()
-    visible_roles = (
-        {Role.USER.value, Role.ADMIN.value}
-        if viewer["role"] == Role.SUPER_ADMIN.value
-        else {Role.USER.value}
-    )
-    visible: dict[str, dict] = {}
-    for doc in db.collection(USERS_COLLECTION).stream():
-        if doc.id == viewer["uid"]:
-            continue
-        profile = doc.to_dict()
-        if profile.get("role") in visible_roles:
-            visible[doc.id] = profile
-    return visible
-
-
 def list_recent_logins(viewer: dict, limit: int = RECENT_LOGINS_LIMIT) -> list[dict]:
     """Returns the most recent login events for accounts the viewer is
     allowed to see, newest first: ADMIN sees USER logins, SUPER_ADMIN sees
     USER and ADMIN logins. The viewer's own logins are never included, and
     each event is enriched with the account's current display name and role
     so the dashboard doesn't need a second lookup."""
-    visible_users = _visible_users(viewer)
+    visible_users = users_service.list_visible_profiles(viewer, exclude_viewer=True)
     db = get_firestore_client()
     query = db.collection(LOGIN_EVENTS_COLLECTION).order_by("created_at", direction="DESCENDING")
 
@@ -110,7 +88,7 @@ def list_usage_totals(viewer: dict) -> list[dict]:
     to see, enriched with each account's email, display name, and role:
     ADMIN sees USER totals, SUPER_ADMIN sees USER and ADMIN totals. The
     viewer's own usage is never included."""
-    visible_users = _visible_users(viewer)
+    visible_users = users_service.list_visible_profiles(viewer, exclude_viewer=True)
     db = get_firestore_client()
 
     totals: list[dict] = []

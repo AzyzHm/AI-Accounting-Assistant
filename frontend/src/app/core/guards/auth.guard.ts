@@ -3,14 +3,15 @@ import { CanActivateFn, Router } from '@angular/router';
 
 import { AuthService } from '@core/services/auth.service';
 
+import { redirectIfUnauthenticated } from './guard-helpers';
+
 export const authGuard: CanActivateFn = async () => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
-  await authService.ready;
-
-  if (!authService.isAuthenticated()) {
-    return router.parseUrl('/login');
+  const redirect = await redirectIfUnauthenticated(authService, router);
+  if (redirect) {
+    return redirect;
   }
 
   if (!authService.isApproved()) {
@@ -37,10 +38,9 @@ export const pendingApprovalGuard: CanActivateFn = async () => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
-  await authService.ready;
-
-  if (!authService.isAuthenticated()) {
-    return router.parseUrl('/login');
+  const redirect = await redirectIfUnauthenticated(authService, router);
+  if (redirect) {
+    return redirect;
   }
 
   if (authService.isApproved()) {

@@ -26,9 +26,6 @@ class TestChromaService:
         reloaded.client.get_collection.assert_called_once_with(name="ai_assistant")
 
     def test_propagates_error_when_collection_missing(self, monkeypatch):
-        # chroma_service.py has no error handling around get_collection, so a
-        # missing collection currently crashes at import/startup rather than
-        # failing gracefully. This documents that behavior as-is.
         mock_client_cls = MagicMock()
         mock_client_cls.return_value.get_collection.side_effect = ValueError(
             "Collection [ai_assistant] does not exist"

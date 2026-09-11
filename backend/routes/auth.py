@@ -1,15 +1,11 @@
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
 
-from core.security import get_current_user, update_profile_fields
-from core.stats import client_ip_from_request, record_login
+from core.security import get_current_user
+from schemas.auth import UpdateProfileRequest
+from services.stats_service import client_ip_from_request, record_login
+from services.users_service import update_profile_fields
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
-
-class UpdateProfileRequest(BaseModel):
-    display_name: str | None = None
-    email: str | None = None
 
 
 @router.get("/me")

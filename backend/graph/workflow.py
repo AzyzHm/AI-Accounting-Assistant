@@ -1,6 +1,6 @@
 from langgraph.graph import END, StateGraph
 
-from config.models import warm_up_embedding_model
+from config.llm_providers import warm_up_embedding_model
 from core.logger import get_logger
 from graph.nodes.generate import generate_answer_node
 from graph.nodes.refine import refine_node

@@ -4,15 +4,20 @@ import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '@core/services/auth.service';
 import { Role } from '@core/models/user.model';
 
+import { redirectIfUnauthenticated } from './guard-helpers';
+
 export function roleGuard(...roles: Role[]): CanActivateFn {
   return async () => {
     const authService = inject(AuthService);
     const router = inject(Router);
 
-    await authService.ready;
+    const redirect = await redirectIfUnauthenticated(authService, router);
+    if (redirect) {
+      return redirect;
+    }
 
-    if (!authService.isAuthenticated()) {
-      return router.parseUrl('/login');
+    if (!authService.isApproved()) {
+      return router.parseUrl('/pending-approval');
     }
 
     const role = authService.role();

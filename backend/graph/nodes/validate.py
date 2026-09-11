@@ -1,6 +1,6 @@
 import json
 
-from config.models import getResponseFromLLM
+from config.llm_providers import getResponseFromLLM
 from config.prompts import validator_prompt
 from core.logger import get_logger
 from graph.state import GraphState

@@ -1,4 +1,4 @@
-import config.models as models_mod
+import config.llm_providers as models_mod
 
 
 class FakeGeminiResponse:

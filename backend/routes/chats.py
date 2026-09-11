@@ -2,9 +2,12 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
-from core.chats import (
+from core.logger import get_logger
+from core.security import require_approved
+from graph.workflow import NODE_LABELS, app
+from schemas.chats import MessageRequest, RenameRequest
+from services.chats_service import (
     MAX_HISTORY_MESSAGES,
     add_message,
     create_chat,
@@ -15,22 +18,11 @@ from core.chats import (
     rename_chat,
     touch_chat,
 )
-from core.logger import get_logger
-from core.security import require_approved
-from core.stats import record_usage
-from graph.workflow import NODE_LABELS, app
+from services.stats_service import record_usage
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
-
-
-class MessageRequest(BaseModel):
-    query: str
-
-
-class RenameRequest(BaseModel):
-    title: str
 
 
 def _owned_chat_or_404(chat_id: str, uid: str) -> dict:

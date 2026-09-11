@@ -1,11 +1,13 @@
 from types import SimpleNamespace
 
-import core.stats as stats_mod
+import services.stats_service as stats_mod
+import services.users_service as users_mod
 from tests.setup.fakes import FakeFirestore
 
 
 def _wire(monkeypatch, fake_db):
     monkeypatch.setattr(stats_mod, "get_firestore_client", lambda: fake_db)
+    monkeypatch.setattr(users_mod, "get_firestore_client", lambda: fake_db)
 
 
 class TestClientIpFromRequest:
