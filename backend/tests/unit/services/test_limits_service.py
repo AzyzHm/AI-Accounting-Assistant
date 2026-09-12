@@ -12,6 +12,16 @@ def _freeze(monkeypatch, year: int, month: int, day: int) -> None:
     monkeypatch.setattr(limits_mod, "_today_utc", lambda: date(year, month, day))
 
 
+class TestIsExempt:
+    def test_admin_and_super_admin_are_exempt(self):
+        assert limits_mod.is_exempt("ADMIN") is True
+        assert limits_mod.is_exempt("SUPER_ADMIN") is True
+
+    def test_user_and_missing_role_are_not_exempt(self):
+        assert limits_mod.is_exempt("USER") is False
+        assert limits_mod.is_exempt(None) is False
+
+
 class TestGetLimits:
     def test_returns_defaults_when_no_override_exists(self, monkeypatch):
         fake_db = FakeFirestore()
@@ -127,6 +137,17 @@ class TestRecordTokenUsage:
         assert stored["daily_tokens"] == 10
         assert stored["monthly_tokens"] == 10
 
+    def test_is_a_no_op_for_admin_and_super_admin(self, monkeypatch):
+        fake_db = FakeFirestore()
+        _wire(monkeypatch, fake_db)
+        _freeze(monkeypatch, 2026, 9, 11)
+
+        limits_mod.record_token_usage("admin-1", {"total_tokens": 100}, "ADMIN")
+        limits_mod.record_token_usage("super-1", {"total_tokens": 100}, "SUPER_ADMIN")
+
+        assert fake_db.collection("usage_periods").document("admin-1").get().to_dict() is None
+        assert fake_db.collection("usage_periods").document("super-1").get().to_dict() is None
+
 
 class TestRecordSearchUsage:
     def test_adds_one_search_credit_to_both_counters(self, monkeypatch):
@@ -141,6 +162,17 @@ class TestRecordSearchUsage:
         assert stored["daily_searches"] == 2
         assert stored["monthly_searches"] == 2
         assert stored["daily_tokens"] == 0
+
+    def test_is_a_no_op_for_admin_and_super_admin(self, monkeypatch):
+        fake_db = FakeFirestore()
+        _wire(monkeypatch, fake_db)
+        _freeze(monkeypatch, 2026, 9, 11)
+
+        limits_mod.record_search_usage("admin-1", "ADMIN")
+        limits_mod.record_search_usage("super-1", "SUPER_ADMIN")
+
+        assert fake_db.collection("usage_periods").document("admin-1").get().to_dict() is None
+        assert fake_db.collection("usage_periods").document("super-1").get().to_dict() is None
 
 
 class TestTokenLimitMessage:
@@ -195,6 +227,42 @@ class TestTokenLimitMessage:
         assert "monthly token limit of 1,000 tokens" in message
         assert "2026-10-01" in message
 
+    def test_admin_is_exempt_even_at_100x_the_default_limit(self, monkeypatch):
+        fake_db = FakeFirestore(
+            seed={
+                "usage_periods": {
+                    "admin-1": {
+                        "daily_period": "2026-09-11",
+                        "daily_tokens": 10_000_000,
+                        "monthly_period": "2026-09",
+                        "monthly_tokens": 10_000_000,
+                    }
+                }
+            }
+        )
+        _wire(monkeypatch, fake_db)
+        _freeze(monkeypatch, 2026, 9, 11)
+
+        assert limits_mod.token_limit_message("admin-1", "ADMIN") is None
+
+    def test_super_admin_is_exempt_even_at_100x_the_default_limit(self, monkeypatch):
+        fake_db = FakeFirestore(
+            seed={
+                "usage_periods": {
+                    "super-1": {
+                        "daily_period": "2026-09-11",
+                        "daily_tokens": 10_000_000,
+                        "monthly_period": "2026-09",
+                        "monthly_tokens": 10_000_000,
+                    }
+                }
+            }
+        )
+        _wire(monkeypatch, fake_db)
+        _freeze(monkeypatch, 2026, 9, 11)
+
+        assert limits_mod.token_limit_message("super-1", "SUPER_ADMIN") is None
+
 
 class TestSearchLimitMessage:
     def test_returns_none_when_within_both_limits(self, monkeypatch):
@@ -225,6 +293,25 @@ class TestSearchLimitMessage:
 
         assert "web search limit has been reached" in message
         assert "2026-09-12" in message
+
+    def test_admin_and_super_admin_are_exempt_regardless_of_usage(self, monkeypatch):
+        fake_db = FakeFirestore(
+            seed={
+                "usage_periods": {
+                    "admin-1": {
+                        "daily_period": "2026-09-11",
+                        "daily_searches": 9999,
+                        "monthly_period": "2026-09",
+                        "monthly_searches": 9999,
+                    }
+                }
+            }
+        )
+        _wire(monkeypatch, fake_db)
+        _freeze(monkeypatch, 2026, 9, 11)
+
+        assert limits_mod.search_limit_message("admin-1", "ADMIN") is None
+        assert limits_mod.search_limit_message("admin-1", "SUPER_ADMIN") is None
 
 
 class TestGetLimitsAndUsage:

@@ -59,11 +59,13 @@ class TestWebSearchNode:
 
     def test_performs_the_search_and_records_usage_when_within_limits(self, monkeypatch):
         recorded = {}
-        monkeypatch.setattr(web_search_mod.limits_service, "search_limit_message", lambda uid: None)
+        monkeypatch.setattr(
+            web_search_mod.limits_service, "search_limit_message", lambda uid, role: None
+        )
         monkeypatch.setattr(
             web_search_mod.limits_service,
             "record_search_usage",
-            lambda uid: recorded.setdefault("limits_uid", uid),
+            lambda uid, role: recorded.setdefault("limits_uid", uid),
         )
         monkeypatch.setattr(
             web_search_mod.stats_service,
@@ -72,7 +74,7 @@ class TestWebSearchNode:
         )
         monkeypatch.setattr(web_search_mod, "search_web", lambda query: "fresh context")
 
-        result = web_search_mod.web_search_node(base_state(uid="user-1"))
+        result = web_search_mod.web_search_node(base_state(uid="user-1", role="USER"))
 
         assert result == {"context": "fresh context"}
         assert recorded == {"limits_uid": "user-1", "stats_uid": "user-1"}
@@ -81,7 +83,7 @@ class TestWebSearchNode:
         monkeypatch.setattr(
             web_search_mod.limits_service,
             "search_limit_message",
-            lambda uid: "Limit reached, resets on 2026-09-12.",
+            lambda uid, role: "Limit reached, resets on 2026-09-12.",
         )
 
         def _boom(*_args, **_kwargs):
@@ -89,7 +91,7 @@ class TestWebSearchNode:
 
         monkeypatch.setattr(web_search_mod, "search_web", _boom)
 
-        result = web_search_mod.web_search_node(base_state(uid="user-1"))
+        result = web_search_mod.web_search_node(base_state(uid="user-1", role="USER"))
 
         assert result == {
             "context": "",
@@ -99,7 +101,7 @@ class TestWebSearchNode:
 
     def test_does_not_record_usage_when_the_search_is_blocked(self, monkeypatch):
         monkeypatch.setattr(
-            web_search_mod.limits_service, "search_limit_message", lambda uid: "blocked"
+            web_search_mod.limits_service, "search_limit_message", lambda uid, role: "blocked"
         )
 
         def _boom(*_args, **_kwargs):
@@ -108,4 +110,19 @@ class TestWebSearchNode:
         monkeypatch.setattr(web_search_mod.limits_service, "record_search_usage", _boom)
         monkeypatch.setattr(web_search_mod.stats_service, "record_search_credit", _boom)
 
-        web_search_mod.web_search_node(base_state(uid="user-1"))
+        web_search_mod.web_search_node(base_state(uid="user-1", role="USER"))
+
+    def test_passes_the_role_through_so_admin_and_super_admin_are_exempt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            web_search_mod.limits_service,
+            "search_limit_message",
+            lambda uid, role: captured.setdefault("role", role) and None,
+        )
+        monkeypatch.setattr(web_search_mod.limits_service, "record_search_usage", lambda *a: None)
+        monkeypatch.setattr(web_search_mod.stats_service, "record_search_credit", lambda *a: None)
+        monkeypatch.setattr(web_search_mod, "search_web", lambda query: "context")
+
+        web_search_mod.web_search_node(base_state(uid="admin-1", role="ADMIN"))
+
+        assert captured["role"] == "ADMIN"
