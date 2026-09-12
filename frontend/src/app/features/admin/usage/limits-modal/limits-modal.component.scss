@@ -1,0 +1,96 @@
+@use '../../../../../styles/variables' as *;
+@use '../../../../../styles/mixins' as *;
+
+.limits-form {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.limits-form__status {
+  color: $color-ink-muted;
+}
+
+.limits-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  margin: 0;
+  padding: 0;
+  border: none;
+
+  &:disabled {
+    opacity: 0.7;
+  }
+}
+
+.limits-form__legend {
+  padding: 0 0 $spacing-xs;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: $color-ink-muted;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.limits-form__hint {
+  margin: -$spacing-sm 0 0;
+  font-size: 0.8125rem;
+  color: $color-ink-muted;
+}
+
+.limits-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.limits-form__label {
+  font-size: 0.8125rem;
+  color: $color-ink-muted;
+}
+
+.limits-form__input {
+  width: 100%;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  border: 1px solid $color-rule;
+  background-color: $color-paper;
+  color: $color-ink;
+  font-size: 0.9375rem;
+  transition:
+    border-color 0.2s $ease-out,
+    box-shadow 0.2s $ease-out;
+  @include focus-ring;
+
+  &:disabled {
+    opacity: 0.6;
+  }
+
+  @media (max-width: $breakpoint-sm) {
+    font-size: 1rem;
+  }
+}
+
+.limits-form__usage {
+  font-size: 0.75rem;
+  color: $color-ink-muted;
+}
+
+.limits-form__error {
+  margin: 0 0 $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  border: 1px solid $color-danger;
+  color: $color-danger;
+  font-size: 0.875rem;
+}
+
+.limits-form__success {
+  margin: 0 0 $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  border: 1px solid $color-ledger-teal;
+  color: $color-ledger-teal-dark;
+  font-size: 0.875rem;
+}
