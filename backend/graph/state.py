@@ -22,6 +22,21 @@ class GraphState(TypedDict):
     swapped for the validator's `optimized_query` when retrying retrieval."""
 
     history: list[HistoryTurn]
+
+    uid: str
+    """The caller's Firebase uid, used by the web_search node to enforce
+    their per-user search credit limit. Absent for graph runs that do not
+    need quota enforcement, such as the module's own __main__ smoke test."""
+
+    search_blocked: bool
+    """True when the web_search node skipped an actual search because the
+    caller had already reached their daily or monthly search credit limit."""
+
+    search_block_message: str
+    """Set alongside `search_blocked`: a ready-to-display explanation of
+    why the web search was skipped and the exact date it becomes available
+    again. The generate node returns this verbatim instead of calling the
+    LLM."""
     intent: str
     """One of "general_knowledge", "web_search", "retrieve". Decides which
     path through the graph this turn takes."""
