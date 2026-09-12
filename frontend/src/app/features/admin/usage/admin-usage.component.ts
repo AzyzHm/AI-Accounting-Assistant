@@ -11,11 +11,13 @@ import { FormsModule } from '@angular/forms';
 import { AdminApiService } from '@core/services/admin-api.service';
 import { UsageTotal } from '@core/models/admin-stats.model';
 import { RoleBadgeComponent } from '@shared/components/role-badge/role-badge.component';
+import { ButtonComponent } from '@shared/components/button/button.component';
+import { AdminUsageLimitsModalComponent } from './limits-modal/limits-modal.component';
 
 @Component({
   selector: 'app-admin-usage',
   standalone: true,
-  imports: [FormsModule, RoleBadgeComponent],
+  imports: [FormsModule, RoleBadgeComponent, ButtonComponent, AdminUsageLimitsModalComponent],
   templateUrl: './admin-usage.component.html',
   styleUrl: './admin-usage.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -27,9 +29,13 @@ export class AdminUsageComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly searchTerm = signal('');
+  protected readonly limitsTarget = signal<UsageTotal | null>(null);
 
   protected readonly totalTokensUsed = computed(() =>
     this.totals().reduce((sum, entry) => sum + (entry.total_tokens ?? 0), 0)
+  );
+  protected readonly totalSearchCreditsUsed = computed(() =>
+    this.totals().reduce((sum, entry) => sum + (entry.search_credits_used ?? 0), 0)
   );
   protected readonly trackedUsers = computed(() => this.totals().length);
 
@@ -48,6 +54,17 @@ export class AdminUsageComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+  }
+
+  protected openLimits(entry: UsageTotal): void {
+    if (entry.role !== 'USER') {
+      return;
+    }
+    this.limitsTarget.set(entry);
+  }
+
+  protected closeLimits(): void {
+    this.limitsTarget.set(null);
   }
 
   private load(): void {
