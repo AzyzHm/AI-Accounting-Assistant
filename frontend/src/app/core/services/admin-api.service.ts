@@ -3,7 +3,7 @@ import { Observable } from 'rxjs';
 
 import { ApiService } from '@core/services/api.service';
 import { Role, UserProfile } from '@core/models/user.model';
-import { LoginEvent, UsageTotal } from '@core/models/admin-stats.model';
+import { LoginEvent, UsageTotal, UserLimitsDetail } from '@core/models/admin-stats.model';
 
 @Injectable({ providedIn: 'root' })
 export class AdminApiService {
@@ -31,5 +31,21 @@ export class AdminApiService {
 
   listUsageTotals(): Observable<UsageTotal[]> {
     return this.api.get<UsageTotal[]>('/admin/stats/usage');
+  }
+
+  getUserLimits(uid: string): Observable<UserLimitsDetail> {
+    return this.api.get<UserLimitsDetail>(`/admin/users/${uid}/limits`);
+  }
+
+  updateUserLimits(
+    uid: string,
+    limits: {
+      daily_token_limit: number;
+      daily_search_limit: number;
+      monthly_token_limit: number;
+      monthly_search_limit: number;
+    }
+  ): Observable<UserLimitsDetail> {
+    return this.api.patch<UserLimitsDetail>(`/admin/users/${uid}/limits`, limits);
   }
 }
