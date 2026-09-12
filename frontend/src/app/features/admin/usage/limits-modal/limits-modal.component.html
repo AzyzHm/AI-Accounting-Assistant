@@ -1,0 +1,94 @@
+<app-modal [title]="'Usage limits for ' + (email ?? uid)" (closed)="close()">
+  @if (loading()) {
+    <p class="limits-form__status">Loading limits…</p>
+  } @else {
+    @if (error()) {
+      <p class="limits-form__error" role="alert">{{ error() }}</p>
+    }
+    @if (success()) {
+      <p class="limits-form__success">{{ success() }}</p>
+    }
+
+    <div class="limits-form">
+      <fieldset class="limits-form__section" [disabled]="saving()">
+        <legend class="limits-form__legend">Daily limits</legend>
+        <p class="limits-form__hint">Resets on {{ dailyResetAt() }}.</p>
+
+        <div class="limits-form__field">
+          <label class="limits-form__label" for="daily-token-limit">Daily token limit</label>
+          <input
+            id="daily-token-limit"
+            type="number"
+            min="0"
+            step="1"
+            class="limits-form__input"
+            [ngModel]="dailyTokenLimit()"
+            (ngModelChange)="dailyTokenLimit.set($event)"
+          />
+          <span class="limits-form__usage"
+            >{{ usage()?.daily_tokens ?? 0 }} tokens used so far today</span
+          >
+        </div>
+
+        <div class="limits-form__field">
+          <label class="limits-form__label" for="daily-search-limit">Daily web search limit</label>
+          <input
+            id="daily-search-limit"
+            type="number"
+            min="0"
+            step="1"
+            class="limits-form__input"
+            [ngModel]="dailySearchLimit()"
+            (ngModelChange)="dailySearchLimit.set($event)"
+          />
+          <span class="limits-form__usage"
+            >{{ usage()?.daily_searches ?? 0 }} web searches used so far today</span
+          >
+        </div>
+      </fieldset>
+
+      <fieldset class="limits-form__section" [disabled]="saving()">
+        <legend class="limits-form__legend">Monthly limits</legend>
+        <p class="limits-form__hint">Resets on {{ monthlyResetAt() }}.</p>
+
+        <div class="limits-form__field">
+          <label class="limits-form__label" for="monthly-token-limit">Monthly token limit</label>
+          <input
+            id="monthly-token-limit"
+            type="number"
+            min="0"
+            step="1"
+            class="limits-form__input"
+            [ngModel]="monthlyTokenLimit()"
+            (ngModelChange)="monthlyTokenLimit.set($event)"
+          />
+          <span class="limits-form__usage"
+            >{{ usage()?.monthly_tokens ?? 0 }} tokens used this month</span
+          >
+        </div>
+
+        <div class="limits-form__field">
+          <label class="limits-form__label" for="monthly-search-limit"
+            >Monthly web search limit</label
+          >
+          <input
+            id="monthly-search-limit"
+            type="number"
+            min="0"
+            step="1"
+            class="limits-form__input"
+            [ngModel]="monthlySearchLimit()"
+            (ngModelChange)="monthlySearchLimit.set($event)"
+          />
+          <span class="limits-form__usage"
+            >{{ usage()?.monthly_searches ?? 0 }} web searches used this month</span
+          >
+        </div>
+      </fieldset>
+
+      <app-button [disabled]="saving()" (clicked)="submit()">
+        {{ saving() ? 'Saving…' : 'Save limits' }}
+      </app-button>
+    </div>
+  }
+</app-modal>

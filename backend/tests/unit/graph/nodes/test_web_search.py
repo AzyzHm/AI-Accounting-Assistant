@@ -42,3 +42,87 @@ class TestWebSearchNode:
         monkeypatch.setattr(web_search_mod, "search_web", lambda query: "context text")
         state = base_state(category="tax_code", answer="stale", is_valid=False)
         assert web_search_mod.web_search_node(state) == {"context": "context text"}
+
+    def test_skips_search_and_no_uid_never_checks_limits(self, monkeypatch):
+        """A graph run with no `uid` in state (e.g. the module's own smoke
+        test) always performs the search, it never touches limits_service."""
+
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("limits_service should not be consulted without a uid")
+
+        monkeypatch.setattr(web_search_mod.limits_service, "search_limit_message", _boom)
+        monkeypatch.setattr(web_search_mod, "search_web", lambda query: "context")
+
+        result = web_search_mod.web_search_node(base_state())
+
+        assert result == {"context": "context"}
+
+    def test_performs_the_search_and_records_usage_when_within_limits(self, monkeypatch):
+        recorded = {}
+        monkeypatch.setattr(
+            web_search_mod.limits_service, "search_limit_message", lambda uid, role: None
+        )
+        monkeypatch.setattr(
+            web_search_mod.limits_service,
+            "record_search_usage",
+            lambda uid, role: recorded.setdefault("limits_uid", uid),
+        )
+        monkeypatch.setattr(
+            web_search_mod.stats_service,
+            "record_search_credit",
+            lambda uid: recorded.setdefault("stats_uid", uid),
+        )
+        monkeypatch.setattr(web_search_mod, "search_web", lambda query: "fresh context")
+
+        result = web_search_mod.web_search_node(base_state(uid="user-1", role="USER"))
+
+        assert result == {"context": "fresh context"}
+        assert recorded == {"limits_uid": "user-1", "stats_uid": "user-1"}
+
+    def test_skips_the_search_and_returns_a_block_message_when_limit_reached(self, monkeypatch):
+        monkeypatch.setattr(
+            web_search_mod.limits_service,
+            "search_limit_message",
+            lambda uid, role: "Limit reached, resets on 2026-09-12.",
+        )
+
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("search_web should not be called once the limit is reached")
+
+        monkeypatch.setattr(web_search_mod, "search_web", _boom)
+
+        result = web_search_mod.web_search_node(base_state(uid="user-1", role="USER"))
+
+        assert result == {
+            "context": "",
+            "search_blocked": True,
+            "search_block_message": "Limit reached, resets on 2026-09-12.",
+        }
+
+    def test_does_not_record_usage_when_the_search_is_blocked(self, monkeypatch):
+        monkeypatch.setattr(
+            web_search_mod.limits_service, "search_limit_message", lambda uid, role: "blocked"
+        )
+
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("usage should not be recorded when the search is skipped")
+
+        monkeypatch.setattr(web_search_mod.limits_service, "record_search_usage", _boom)
+        monkeypatch.setattr(web_search_mod.stats_service, "record_search_credit", _boom)
+
+        web_search_mod.web_search_node(base_state(uid="user-1", role="USER"))
+
+    def test_passes_the_role_through_so_admin_and_super_admin_are_exempt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            web_search_mod.limits_service,
+            "search_limit_message",
+            lambda uid, role: captured.setdefault("role", role) and None,
+        )
+        monkeypatch.setattr(web_search_mod.limits_service, "record_search_usage", lambda *a: None)
+        monkeypatch.setattr(web_search_mod.stats_service, "record_search_credit", lambda *a: None)
+        monkeypatch.setattr(web_search_mod, "search_web", lambda query: "context")
+
+        web_search_mod.web_search_node(base_state(uid="admin-1", role="ADMIN"))
+
+        assert captured["role"] == "ADMIN"

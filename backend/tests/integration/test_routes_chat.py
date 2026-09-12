@@ -286,6 +286,29 @@ class TestSendMessage:
         assert totals["total_tokens"] == 15
         assert totals["message_count"] == 1
 
+    def test_passes_the_caller_s_uid_to_the_graph(self, app):
+        client, fake_graph, fake_db = app
+        fake_db.collection("chats").document("c1").set(
+            {"owner_uid": "test-uid", "title": "Untitled chat", "updated_at": 1}
+        )
+
+        client.post("/chats/c1/messages", json={"query": "q"})
+
+        assert fake_graph.last_invoke_state["uid"] == "test-uid"
+
+    def test_rolls_token_usage_into_the_caller_s_daily_and_monthly_quota(self, app):
+        client, fake_graph, fake_db = app
+        fake_db.collection("chats").document("c1").set(
+            {"owner_uid": "test-uid", "title": "Untitled chat", "updated_at": 1}
+        )
+        fake_graph.token_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+        client.post("/chats/c1/messages", json={"query": "q"})
+
+        usage = fake_db.collection("usage_periods").document("test-uid").get().to_dict()
+        assert usage["daily_tokens"] == 15
+        assert usage["monthly_tokens"] == 15
+
     def test_returns_404_for_someone_else_s_chat(self, app):
         client, _fake_graph, fake_db = app
         fake_db.collection("chats").document("c1").set(

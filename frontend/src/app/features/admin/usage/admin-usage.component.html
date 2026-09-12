@@ -13,6 +13,10 @@
         <span class="admin-kpi__label">Total tokens used</span>
       </div>
       <div class="admin-kpi">
+        <span class="admin-kpi__value">{{ totalSearchCreditsUsed() }}</span>
+        <span class="admin-kpi__label">Total search credits used</span>
+      </div>
+      <div class="admin-kpi">
         <span class="admin-kpi__value">{{ trackedUsers() }}</span>
         <span class="admin-kpi__label">Tracked users</span>
       </div>
@@ -46,7 +50,9 @@
               <th>Prompt tokens</th>
               <th>Completion tokens</th>
               <th>Total tokens</th>
+              <th>Search credits</th>
               <th>Messages</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -58,12 +64,30 @@
                 <td>{{ entry.prompt_tokens }}</td>
                 <td>{{ entry.completion_tokens }}</td>
                 <td>{{ entry.total_tokens }}</td>
+                <td>{{ entry.search_credits_used ?? 0 }}</td>
                 <td>{{ entry.message_count }}</td>
+                <td>
+                  @if (entry.role === 'USER') {
+                    <app-button variant="secondary" (clicked)="openLimits(entry)">
+                      Edit limits
+                    </app-button>
+                  } @else {
+                    <span class="admin-usage__unlimited">Unlimited</span>
+                  }
+                </td>
               </tr>
             }
           </tbody>
         </table>
       </div>
     }
+  }
+
+  @if (limitsTarget(); as target) {
+    <app-admin-usage-limits-modal
+      [uid]="target.uid"
+      [email]="target.email"
+      (closed)="closeLimits()"
+    />
   }
 </section>

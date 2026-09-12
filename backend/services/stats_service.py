@@ -83,6 +83,16 @@ def record_usage(uid: str, token_usage: dict) -> None:
     )
 
 
+def record_search_credit(uid: str) -> None:
+    """Rolls one Tavily web search credit into a user's running lifetime
+    total, mirroring `record_usage`'s token counters, so the admin
+    dashboard can show total search credits spent alongside total tokens."""
+    db = get_firestore_client()
+    db.collection(USAGE_TOTALS_COLLECTION).document(uid).set(
+        {"search_credits_used": Increment(1), "updated_at": SERVER_TIMESTAMP}, merge=True
+    )
+
+
 def list_usage_totals(viewer: dict) -> list[dict]:
     """Returns running token usage totals for accounts the viewer is allowed
     to see, enriched with each account's email, display name, and role:

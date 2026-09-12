@@ -3,6 +3,30 @@ from config.prompts import expert_prompt_v1, expert_prompt_v2
 from tests.unit.graph.nodes._helpers import ZERO_USAGE, FakeResponse, FakeUsage, base_state
 
 
+class TestSearchBlockedShortCircuit:
+    def test_returns_the_block_message_verbatim_without_calling_the_llm(self, monkeypatch):
+        def _boom(**_kwargs):
+            raise AssertionError("the LLM should not be called when the search was blocked")
+
+        monkeypatch.setattr(generate_mod, "getResponseFromLLM", _boom)
+        state = base_state(
+            context="",
+            search_blocked=True,
+            search_block_message="Limit reached, resets on 2026-09-12.",
+        )
+
+        result = generate_mod.generate_answer_node(state)
+
+        assert result == {
+            "answer": "Limit reached, resets on 2026-09-12.",
+            "token_usage": ZERO_USAGE,
+        }
+
+    def test_falls_back_to_an_empty_answer_if_no_message_was_set(self):
+        result = generate_mod.generate_answer_node(base_state(search_blocked=True))
+        assert result == {"answer": "", "token_usage": ZERO_USAGE}
+
+
 class TestGenerateNode:
     def test_uses_v1_prompt_for_general_knowledge(self, monkeypatch):
         captured = {}

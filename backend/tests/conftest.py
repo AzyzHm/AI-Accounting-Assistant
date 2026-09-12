@@ -34,10 +34,13 @@ def app():
     services.chats_service and services.stats_service both get pointed at a
     single fresh FakeFirestore instance, so chats, their messages, and the
     resulting usage totals are all backed by the same in-memory store within
-    a test.
+    a test. services.limits_service is pointed at the same instance too, so
+    per-user token/search quota checks and their daily/monthly counters are
+    backed by it as well.
     """
     import routes.chats as r_chats
     import services.chats_service as chats_service
+    import services.limits_service as limits_service
     import services.stats_service as stats_service
     from core.security import get_current_user
 
@@ -47,10 +50,12 @@ def app():
     original_graph_app = r_chats.app
     original_chats_get_client = chats_service.get_firestore_client
     original_stats_get_client = stats_service.get_firestore_client
+    original_limits_get_client = limits_service.get_firestore_client
 
     r_chats.app = fake_graph
     chats_service.get_firestore_client = lambda: fake_db
     stats_service.get_firestore_client = lambda: fake_db
+    limits_service.get_firestore_client = lambda: fake_db
 
     from main import app as _app
 
@@ -62,4 +67,5 @@ def app():
     r_chats.app = original_graph_app
     chats_service.get_firestore_client = original_chats_get_client
     stats_service.get_firestore_client = original_stats_get_client
+    limits_service.get_firestore_client = original_limits_get_client
     _app.dependency_overrides.pop(get_current_user, None)

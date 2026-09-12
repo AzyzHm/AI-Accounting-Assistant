@@ -26,7 +26,19 @@ def _extract_token_usage(response) -> dict:
 def generate_answer_node(state: GraphState):
     """Generate a final answer for the query, grounded in retrieved/web
     context (when available) and the recent conversation history (when
-    available)."""
+    available).
+
+    When the web_search node skipped an actual search because the caller's
+    search credit limit was reached, the LLM is never called: the node's
+    ready-to-display explanation is returned verbatim as the answer, so the
+    exact reset date it names is never paraphrased or dropped by the LLM.
+    """
+    if state.get("search_blocked"):
+        return {
+            "answer": state.get("search_block_message", ""),
+            "token_usage": dict(_EMPTY_TOKEN_USAGE),
+        }
+
     context = state.get("context", "")
     query = state.get("query", "")
     intent = state.get("intent", "general_knowledge")

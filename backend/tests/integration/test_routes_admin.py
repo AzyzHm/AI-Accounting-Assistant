@@ -1,42 +1,3 @@
-import pytest
-from fastapi.testclient import TestClient
-
-from core.security import get_current_user
-from tests.setup.fakes import FakeFirestore
-
-
-@pytest.fixture()
-def admin_client(monkeypatch):
-    """
-    Yields a factory `make_client(current_user, users)` returning a TestClient
-    with get_current_user overridden to `current_user` and services.users_service
-    (plus services.stats_service, used by the stats endpoints) backed by a fresh
-    FakeFirestore seeded with `users`. `routes.admin.firebase_auth.delete_user`
-    is replaced with a no-op recorder, exposed as `make_client.deleted_auth_uids`,
-    so delete tests never make a real call to Firebase and can assert on what
-    would have been deleted.
-    """
-    import routes.admin as r_admin
-    from main import app as _app
-    from services import stats_service, users_service
-
-    deleted_auth_uids: list[str] = []
-
-    def make_client(current_user, users):
-        fake_db = FakeFirestore(users=users)
-        monkeypatch.setattr(users_service, "get_firestore_client", lambda: fake_db)
-        monkeypatch.setattr(stats_service, "get_firestore_client", lambda: fake_db)
-        monkeypatch.setattr(r_admin.firebase_auth, "delete_user", deleted_auth_uids.append)
-        _app.dependency_overrides[get_current_user] = lambda: current_user
-        return TestClient(_app), fake_db
-
-    make_client.deleted_auth_uids = deleted_auth_uids
-
-    yield make_client
-
-    _app.dependency_overrides.pop(get_current_user, None)
-
-
 class TestListUsers:
     def test_admin_only_sees_user_accounts(self, admin_client):
         client, _fake_db = admin_client(
@@ -469,3 +430,23 @@ class TestUsageStats:
         response = client.get("/admin/stats/usage")
 
         assert response.status_code == 403
+
+    def test_includes_search_credits_used_when_present(self, admin_client):
+        client, fake_db = admin_client(
+            current_user={"uid": "admin-1", "role": "ADMIN"},
+            users={"u1": {"email": "a@a.com", "role": "USER"}},
+        )
+        fake_db.collection("usage_totals").document("u1").set(
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+                "message_count": 1,
+                "search_credits_used": 4,
+            }
+        )
+
+        response = client.get("/admin/stats/usage")
+
+        assert response.status_code == 200
+        assert response.json()[0]["search_credits_used"] == 4
