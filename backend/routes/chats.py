@@ -48,7 +48,7 @@ def _stream_blocked_reply(chat_id: str, message: str):
     yield _sse_event({"event": "done", "response": message, "category": None, "chat_id": chat_id})
 
 
-def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
+def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str, role: str):
     """
     Runs the RAG graph for one message, yielding an SSE "progress" event
     every time a node finishes (refining the query, searching the web,
@@ -63,7 +63,7 @@ def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
     result: dict = {}
     try:
         for update in app.stream(
-            {"query": query, "history": history, "uid": uid}, stream_mode="updates"
+            {"query": query, "history": history, "uid": uid, "role": role}, stream_mode="updates"
         ):  # type: ignore
             for node_name, node_update in update.items():
                 result.update(node_update)
@@ -85,7 +85,7 @@ def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
     touch_chat(chat_id)
     if token_usage:
         record_usage(uid, token_usage)
-        limits_service.record_token_usage(uid, token_usage)
+        limits_service.record_token_usage(uid, token_usage, role)
 
     yield _sse_event(
         {"event": "done", "response": answer, "category": category, "chat_id": chat_id}
@@ -139,9 +139,10 @@ async def send_message(
     conversational context, unless the caller has already reached their
     daily or monthly token limit: in that case the graph never runs, a
     canned reply naming the limit and its exact reset date is stored and
-    streamed back instead. The response is a Server-Sent Events stream:
-    one "progress" event per graph node the agent moves through (refining
-    the query, searching the web, searching sources, writing the answer...),
+    streamed back instead. ADMIN and SUPER_ADMIN are exempt from this
+    limit entirely. The response is a Server-Sent Events stream: one
+    "progress" event per graph node the agent moves through (refining the
+    query, searching the web, searching sources, writing the answer...),
     then a final "done" event with the answer, or an "error" event if the
     agent failed. Stores both the user's message and the assistant's reply,
     and rolls the reply's token cost into the caller's usage totals. The
@@ -150,6 +151,7 @@ async def send_message(
     """
     _owned_chat_or_404(chat_id, current_user["uid"])
     uid = current_user["uid"]
+    role = current_user["role"]
 
     history = [
         {"role": message["role"], "content": message["content"]}
@@ -158,13 +160,13 @@ async def send_message(
 
     add_message(chat_id, role="user", content=body.query)
 
-    limit_message = limits_service.token_limit_message(uid)
+    limit_message = limits_service.token_limit_message(uid, role)
     if limit_message is not None:
         return StreamingResponse(
             _stream_blocked_reply(chat_id, limit_message), media_type="text/event-stream"
         )
 
     return StreamingResponse(
-        _stream_chat_reply(chat_id, body.query, history, uid),
+        _stream_chat_reply(chat_id, body.query, history, uid, role),
         media_type="text/event-stream",
     )

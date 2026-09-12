@@ -136,16 +136,19 @@ async def get_user_limits(
     uid: str,
     current_user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
-    """Returns a user's configured daily/monthly token and web search
-    limits, alongside their current consumption and the exact dates those
-    counters reset. Visibility mirrors the rest of this router: ADMIN can
-    only view USER accounts, SUPER_ADMIN can also view ADMIN accounts."""
+    """Returns a USER account's configured daily/monthly token and web
+    search limits, alongside their current consumption and the exact dates
+    those counters reset. ADMIN and SUPER_ADMIN accounts are exempt from
+    every limit and have nothing configurable, so targeting one here
+    returns 403 regardless of the caller's own role."""
     target = users_service.get_profile(uid)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if current_user["role"] == Role.ADMIN.value and target["role"] != Role.USER.value:
-        raise HTTPException(status_code=403, detail="ADMIN can only view USER accounts")
+    if target["role"] != Role.USER.value:
+        raise HTTPException(
+            status_code=403, detail="ADMIN and SUPER_ADMIN accounts are exempt from limits"
+        )
 
     return limits_service.get_limits_and_usage(uid)
 
@@ -156,19 +159,18 @@ async def update_user_limits(
     body: LimitsUpdateRequest,
     current_user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
-    """Sets a user's daily/monthly token and web search limits. Visibility
-    mirrors the rest of this router: ADMIN can only edit USER accounts,
-    SUPER_ADMIN can also edit ADMIN accounts. The SUPER_ADMIN account
-    itself is never editable, it has no quota to begin with."""
+    """Sets a USER account's daily/monthly token and web search limits.
+    ADMIN and SUPER_ADMIN accounts are exempt from every limit and have
+    nothing configurable, so targeting one here returns 403 regardless of
+    the caller's own role."""
     target = users_service.get_profile(uid)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if target["role"] == Role.SUPER_ADMIN.value:
-        raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be modified")
-
-    if current_user["role"] == Role.ADMIN.value and target["role"] != Role.USER.value:
-        raise HTTPException(status_code=403, detail="ADMIN can only edit USER accounts")
+    if target["role"] != Role.USER.value:
+        raise HTTPException(
+            status_code=403, detail="ADMIN and SUPER_ADMIN accounts are exempt from limits"
+        )
 
     limits_service.set_limits(uid, **body.model_dump())
     return limits_service.get_limits_and_usage(uid)
