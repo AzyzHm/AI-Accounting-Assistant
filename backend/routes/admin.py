@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from firebase_admin import auth as firebase_auth
 
 from core.security import require_roles
-from schemas.admin import RoleUpdateRequest
+from schemas.admin import LimitsUpdateRequest, RoleUpdateRequest
 from schemas.roles import Role
-from services import users_service
+from services import limits_service, users_service
 from services.stats_service import list_recent_logins, list_usage_totals
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -125,7 +125,50 @@ async def list_login_events(
 async def list_token_usage(
     current_user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
-    """Lists running token usage totals per account. ADMIN sees USER
-    accounts only, SUPER_ADMIN also sees ADMIN accounts. The caller never
-    sees their own usage."""
+    """Lists running token usage totals per account, including lifetime
+    search credits spent. ADMIN sees USER accounts only, SUPER_ADMIN also
+    sees ADMIN accounts. The caller never sees their own usage."""
     return list_usage_totals(current_user)
+
+
+@router.get("/users/{uid}/limits")
+async def get_user_limits(
+    uid: str,
+    current_user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
+):
+    """Returns a user's configured daily/monthly token and web search
+    limits, alongside their current consumption and the exact dates those
+    counters reset. Visibility mirrors the rest of this router: ADMIN can
+    only view USER accounts, SUPER_ADMIN can also view ADMIN accounts."""
+    target = users_service.get_profile(uid)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if current_user["role"] == Role.ADMIN.value and target["role"] != Role.USER.value:
+        raise HTTPException(status_code=403, detail="ADMIN can only view USER accounts")
+
+    return limits_service.get_limits_and_usage(uid)
+
+
+@router.patch("/users/{uid}/limits")
+async def update_user_limits(
+    uid: str,
+    body: LimitsUpdateRequest,
+    current_user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN)),
+):
+    """Sets a user's daily/monthly token and web search limits. Visibility
+    mirrors the rest of this router: ADMIN can only edit USER accounts,
+    SUPER_ADMIN can also edit ADMIN accounts. The SUPER_ADMIN account
+    itself is never editable, it has no quota to begin with."""
+    target = users_service.get_profile(uid)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if target["role"] == Role.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="The SUPER_ADMIN account cannot be modified")
+
+    if current_user["role"] == Role.ADMIN.value and target["role"] != Role.USER.value:
+        raise HTTPException(status_code=403, detail="ADMIN can only edit USER accounts")
+
+    limits_service.set_limits(uid, **body.model_dump())
+    return limits_service.get_limits_and_usage(uid)

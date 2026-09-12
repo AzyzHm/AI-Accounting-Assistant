@@ -7,6 +7,7 @@ from core.logger import get_logger
 from core.security import require_approved
 from graph.workflow import NODE_LABELS, app
 from schemas.chats import MessageRequest, RenameRequest
+from services import limits_service
 from services.chats_service import (
     MAX_HISTORY_MESSAGES,
     add_message,
@@ -37,6 +38,16 @@ def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _stream_blocked_reply(chat_id: str, message: str):
+    """Persists a canned assistant reply explaining that a token limit was
+    hit, and yields a single "done" SSE event carrying it, exactly like a
+    normal turn would, so the frontend needs no special handling for this
+    case: the limit message just shows up as the assistant's reply."""
+    add_message(chat_id, role="assistant", content=message)
+    touch_chat(chat_id)
+    yield _sse_event({"event": "done", "response": message, "category": None, "chat_id": chat_id})
+
+
 def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
     """
     Runs the RAG graph for one message, yielding an SSE "progress" event
@@ -46,11 +57,14 @@ def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
     final answer, or an "error" event if the agent failed.
 
     Also persists the assistant's reply and rolls its token cost into the
-    caller's usage total, exactly like a synchronous call would.
+    caller's usage totals, lifetime for the admin dashboard and per-period
+    for quota enforcement, exactly like a synchronous call would.
     """
     result: dict = {}
     try:
-        for update in app.stream({"query": query, "history": history}, stream_mode="updates"):  # type: ignore
+        for update in app.stream(
+            {"query": query, "history": history, "uid": uid}, stream_mode="updates"
+        ):  # type: ignore
             for node_name, node_update in update.items():
                 result.update(node_update)
                 label = NODE_LABELS.get(node_name, node_name)
@@ -71,6 +85,7 @@ def _stream_chat_reply(chat_id: str, query: str, history: list[dict], uid: str):
     touch_chat(chat_id)
     if token_usage:
         record_usage(uid, token_usage)
+        limits_service.record_token_usage(uid, token_usage)
 
     yield _sse_event(
         {"event": "done", "response": answer, "category": category, "chat_id": chat_id}
@@ -121,16 +136,20 @@ async def send_message(
     """Sends a message in an existing chat and streams the agent's progress.
 
     Runs the agent with the chat's last MAX_HISTORY_MESSAGES messages as
-    conversational context. The response is a Server-Sent Events stream:
+    conversational context, unless the caller has already reached their
+    daily or monthly token limit: in that case the graph never runs, a
+    canned reply naming the limit and its exact reset date is stored and
+    streamed back instead. The response is a Server-Sent Events stream:
     one "progress" event per graph node the agent moves through (refining
     the query, searching the web, searching sources, writing the answer...),
     then a final "done" event with the answer, or an "error" event if the
     agent failed. Stores both the user's message and the assistant's reply,
-    and rolls the reply's token cost into the caller's usage total. The
+    and rolls the reply's token cost into the caller's usage totals. The
     chat's title is left untouched, it stays "Untitled chat" (or whatever
     the owner renamed it to) until they rename it.
     """
     _owned_chat_or_404(chat_id, current_user["uid"])
+    uid = current_user["uid"]
 
     history = [
         {"role": message["role"], "content": message["content"]}
@@ -139,7 +158,13 @@ async def send_message(
 
     add_message(chat_id, role="user", content=body.query)
 
+    limit_message = limits_service.token_limit_message(uid)
+    if limit_message is not None:
+        return StreamingResponse(
+            _stream_blocked_reply(chat_id, limit_message), media_type="text/event-stream"
+        )
+
     return StreamingResponse(
-        _stream_chat_reply(chat_id, body.query, history, current_user["uid"]),
+        _stream_chat_reply(chat_id, body.query, history, uid),
         media_type="text/event-stream",
     )
