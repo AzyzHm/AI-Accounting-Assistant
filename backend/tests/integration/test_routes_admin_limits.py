@@ -70,14 +70,14 @@ class TestUserLimits:
         assert get_response.status_code == 403
         assert patch_response.status_code == 403
 
-    def test_super_admin_can_edit_an_admin_s_limits(self, admin_client):
+    def test_super_admin_can_set_a_user_s_limits(self, admin_client):
         client, fake_db = admin_client(
             current_user={"uid": "super-1", "role": "SUPER_ADMIN"},
-            users={"a2": {"email": "other-admin@a.com", "role": "ADMIN"}},
+            users={"u1": {"email": "a@a.com", "role": "USER"}},
         )
 
         response = client.patch(
-            "/admin/users/a2/limits",
+            "/admin/users/u1/limits",
             json={
                 "daily_token_limit": 1,
                 "daily_search_limit": 1,
@@ -87,6 +87,26 @@ class TestUserLimits:
         )
 
         assert response.status_code == 200
+
+    def test_super_admin_cannot_view_or_edit_an_admin_s_limits_since_exempt(self, admin_client):
+        client, _fake_db = admin_client(
+            current_user={"uid": "super-1", "role": "SUPER_ADMIN"},
+            users={"a2": {"email": "other-admin@a.com", "role": "ADMIN"}},
+        )
+
+        get_response = client.get("/admin/users/a2/limits")
+        patch_response = client.patch(
+            "/admin/users/a2/limits",
+            json={
+                "daily_token_limit": 1,
+                "daily_search_limit": 1,
+                "monthly_token_limit": 1,
+                "monthly_search_limit": 1,
+            },
+        )
+
+        assert get_response.status_code == 403
+        assert patch_response.status_code == 403
 
     def test_super_admin_account_itself_cannot_be_edited(self, admin_client):
         client, _fake_db = admin_client(
