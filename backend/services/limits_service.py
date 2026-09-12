@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 from config.firebase import get_firestore_client
+from schemas.roles import Role
 
 USAGE_LIMITS_COLLECTION = "usage_limits"
 USAGE_PERIODS_COLLECTION = "usage_periods"
@@ -13,9 +14,13 @@ DEFAULT_LIMITS = {
     "monthly_token_limit": 2_000_000,
     "monthly_search_limit": 600,
 }
-"""Fallback quotas applied to any account without an admin-configured
-override. Values are inclusive ceilings: usage strictly below the limit is
-allowed, usage at or above it is not."""
+
+EXEMPT_ROLES = {Role.ADMIN.value, Role.SUPER_ADMIN.value}
+
+
+def is_exempt(role: str | None) -> bool:
+    """True for ADMIN and SUPER_ADMIN, who chat and search without limit."""
+    return role in EXEMPT_ROLES
 
 
 def _today_utc() -> date:
@@ -116,15 +121,21 @@ def _apply_usage_delta(uid: str, *, tokens: int = 0, searches: int = 0) -> None:
     )
 
 
-def record_token_usage(uid: str, token_usage: dict) -> None:
+def record_token_usage(uid: str, token_usage: dict, role: str | None = None) -> None:
     """Rolls one reply's token cost into the caller's daily and monthly
-    quota counters."""
+    quota counters. A no-op for ADMIN/SUPER_ADMIN, whose usage is never
+    checked against a limit, so there is nothing to track it against."""
+    if is_exempt(role):
+        return
     _apply_usage_delta(uid, tokens=token_usage.get("total_tokens", 0))
 
 
-def record_search_usage(uid: str) -> None:
+def record_search_usage(uid: str, role: str | None = None) -> None:
     """Rolls one Tavily web search credit into the caller's daily and
-    monthly quota counters."""
+    monthly quota counters. A no-op for ADMIN/SUPER_ADMIN, see
+    record_token_usage."""
+    if is_exempt(role):
+        return
     _apply_usage_delta(uid, searches=1)
 
 
@@ -142,10 +153,14 @@ def _search_limit_message(reset_at: str) -> str:
     )
 
 
-def token_limit_message(uid: str) -> str | None:
+def token_limit_message(uid: str, role: str | None = None) -> str | None:
     """Returns a ready-to-display message if the caller has reached their
     daily or monthly token limit, naming the limit and its exact reset
-    date, or None if they are still within both."""
+    date, or None if they are still within both. Always None for
+    ADMIN/SUPER_ADMIN, who are exempt."""
+    if is_exempt(role):
+        return None
+
     limits = get_limits(uid)
     usage = _usage_now(uid)
 
@@ -156,10 +171,14 @@ def token_limit_message(uid: str) -> str | None:
     return None
 
 
-def search_limit_message(uid: str) -> str | None:
+def search_limit_message(uid: str, role: str | None = None) -> str | None:
     """Returns a ready-to-display message if the caller has reached their
     daily or monthly web search limit, naming the exact reset date, or
-    None if they are still within both."""
+    None if they are still within both. Always None for ADMIN/SUPER_ADMIN,
+    who are exempt."""
+    if is_exempt(role):
+        return None
+
     limits = get_limits(uid)
     usage = _usage_now(uid)
 
