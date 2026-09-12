@@ -156,6 +156,41 @@ class TestRecordUsage:
         assert totals["message_count"] == 2
 
 
+class TestRecordSearchCredit:
+    def test_creates_totals_on_first_call(self, monkeypatch):
+        fake_db = FakeFirestore()
+        _wire(monkeypatch, fake_db)
+
+        stats_mod.record_search_credit("u1")
+
+        totals = fake_db.collection("usage_totals").document("u1").get().to_dict()
+        assert totals["search_credits_used"] == 1
+
+    def test_accumulates_across_multiple_calls(self, monkeypatch):
+        fake_db = FakeFirestore()
+        _wire(monkeypatch, fake_db)
+
+        stats_mod.record_search_credit("u1")
+        stats_mod.record_search_credit("u1")
+        stats_mod.record_search_credit("u1")
+
+        totals = fake_db.collection("usage_totals").document("u1").get().to_dict()
+        assert totals["search_credits_used"] == 3
+
+    def test_does_not_disturb_existing_token_totals(self, monkeypatch):
+        fake_db = FakeFirestore()
+        _wire(monkeypatch, fake_db)
+
+        stats_mod.record_usage(
+            "u1", {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        )
+        stats_mod.record_search_credit("u1")
+
+        totals = fake_db.collection("usage_totals").document("u1").get().to_dict()
+        assert totals["total_tokens"] == 15
+        assert totals["search_credits_used"] == 1
+
+
 class TestListUsageTotals:
     def test_returns_totals_for_every_visible_user(self, monkeypatch):
         fake_db = FakeFirestore(
